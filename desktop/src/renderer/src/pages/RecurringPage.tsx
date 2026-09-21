@@ -14,7 +14,13 @@ function RecurringPage(): JSX.Element {
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [form] = Form.useForm()
 
-  useEffect(() => { loadData(); loadCategories() }, [])
+  useEffect(() => {
+      loadData(); loadCategories()
+      // v0.7.3 云同步应用了云端周期规则快照后自动刷新列表
+      const onEntitySynced = () => { loadData() }
+      window.addEventListener('entity-synced', onEntitySynced)
+      return () => window.removeEventListener('entity-synced', onEntitySynced)
+    }, [])
 
   async function loadData(): Promise<void> {
     setBills(await window.electronAPI.getRecurringBills())

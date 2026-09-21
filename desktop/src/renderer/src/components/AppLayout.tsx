@@ -171,8 +171,12 @@ function AppLayout(): JSX.Element {
         reviveCount: r.revive_count || 0,
       }))
 
-      // 2. 执行同步
-      const { result, newCloudRecords, toMark, toAlive } = await performSync(localRecords)
+      // 2. 执行同步（v0.7.3：附带待办/周期账单快照，含软删项，LWW 由引擎计算）
+      let localTodos: any[] = []
+      let localRecurring: any[] = []
+      try { localTodos = await window.electronAPI.getTodosForSync() || [] } catch { /* 老库无表时忽略 */ }
+      try { localRecurring = await window.electronAPI.getRecurringForSync() || [] } catch { /* 同上 */ }
+      const { result, newCloudRecords, toMark, toAlive, todoIncoming, recurringIncoming } = await performSync(localRecords, localTodos, localRecurring)
 
       if (result.success) {
         // 3. 将云端新记录写入本地 SQLite
@@ -208,7 +212,20 @@ function AppLayout(): JSX.Element {
           } catch { /* skip */ }
         }
 
-        if (result.uploaded === 0 && imported === 0 && marked === 0 && revived === 0) {
+        // 4b. v0.7.3 应用云端待办/周期账单快照（按 cloud_id upsert，含软删跟删）
+        let entitiesApplied = 0
+        try {
+          if (todoIncoming?.length > 0) {
+            const res = await window.electronAPI.applyCloudTodos(todoIncoming)
+            entitiesApplied += res?.changed || 0
+          }
+          if (recurringIncoming?.length > 0) {
+            const res = await window.electronAPI.applyCloudRecurring(recurringIncoming)
+            entitiesApplied += res?.changed || 0
+          }
+        } catch { /* 回写失败不阻断账单同步结果 */ }
+
+        if (result.uploaded === 0 && imported === 0 && marked === 0 && revived === 0 && entitiesApplied === 0) {
           message.success('数据已是最新，无需同步')
         } else {
           const parts: string[] = []
@@ -216,7 +233,10 @@ function AppLayout(): JSX.Element {
           if (imported > 0) parts.push(`下载 ${imported} 条`)
           if (marked > 0) parts.push(`按云端凭证删除 ${marked} 条`)
           if (revived > 0) parts.push(`按云端凭条恢复 ${revived} 条`)
+          if (entitiesApplied > 0) parts.push(`同步待办/周期规则 ${entitiesApplied} 条`)
           message.success(`同步完成：${parts.join('，')}`)
+          // 实体变化后通知当前页面刷新（待办/周期页监听）
+          if (entitiesApplied > 0) window.dispatchEvent(new CustomEvent('entity-synced'))
         }
       } else {
         message.warning(result.error || '同步失败，请检查网络和环境 ID')

@@ -1,3 +1,11 @@
+/** v0.7.3 待办/周期账单的云同步快照（camelCase，与小程序端字段格式一致；
+ * id = 跨端稳定标识 cloud_id，updatedAt = LWW 毫秒戳，deleted = 软删标记） */
+type EntitySnapshot = Record<string, any> & {
+  id: string
+  updatedAt?: number
+  deleted?: boolean
+}
+
 interface Category {
   id: number
   category_key: string
@@ -113,6 +121,9 @@ interface ElectronAPI {
   deleteRecurring: (id: number) => Promise<{ success: boolean }>
   toggleRecurring: (id: number, active: boolean) => Promise<{ success: boolean }>
   executeRecurring: (id: number) => Promise<{ success: boolean; error?: string }>
+  // v0.7.3 云同步实体快照（camelCase，含软删项）
+  getRecurringForSync: () => Promise<EntitySnapshot[]>
+  applyCloudRecurring: (items: EntitySnapshot[]) => Promise<{ changed: number }>
   onRecurringAutoRun: (callback: (list: { name: string; amount: number; type: string; nextDate: string }[]) => void) => void
 
   // 待办事项
@@ -121,6 +132,9 @@ interface ElectronAPI {
   deleteTodo: (id: number) => Promise<{ success: boolean }>
   toggleTodo: (id: number, active: boolean) => Promise<{ success: boolean }>
   completeTodo: (id: number) => Promise<{ success: boolean; recorded?: { amount: number; date: string } | null; error?: string }>
+  // v0.7.3 云同步实体快照（camelCase，含软删项）
+  getTodosForSync: () => Promise<EntitySnapshot[]>
+  applyCloudTodos: (items: EntitySnapshot[]) => Promise<{ changed: number }>
   getShortcut: () => Promise<string>
   setShortcut: (accelerator: string) => Promise<{ success: boolean }>
 

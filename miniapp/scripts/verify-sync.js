@@ -19,6 +19,8 @@
  *   ⑫ 回收站恢复一笔 → 上传撤销凭条，小程序自动跟着恢复（v0.6.7）
  *   ⑬ 删了又恢复反复横跳 → 凭证/撤销配对收敛，不倒灌不抽风
  *   ⑭ 删除+恢复混战后的新设备 → 终态与双端完全一致
+ *   ⑮ 待办跨端 LWW 快照同步：新增跟随/编辑跟随/软删不复活/收敛（v0.7.3）
+ *   ⑯ 周期账单改下次日期 → 对端跟随不倒灌；多用户隔离同样生效（v0.7.3）
  */
 const path = require('path')
 const {
@@ -273,6 +275,48 @@ function createMiniappDevice(cloud, ownerId) {
   }
 }
 
+// ---- v0.7.3 实体设备（待办/周期账单 LWW 快照，两端都走真正的上线引擎 runSync） ----
+
+function createEntityDevice(cloud, ownerId, store) {
+  const todos = []
+  const recurring = []
+  const holder = { todos, recurring }
+  const specOf = (arr) => ({
+    getLocal: async () => arr.map((e) => ({ ...e })),
+    apply: async (items) => {
+      let changed = 0
+      for (const it of items) {
+        const i = arr.findIndex((e) => String(e.id) === String(it.id))
+        if (i >= 0) { arr[i] = { ...arr[i], ...it }; changed++ }
+        else { arr.push({ ...it }); changed++ }
+      }
+      return changed
+    },
+  })
+  return {
+    holder,
+    /** 模拟用户新增/编辑一个实体（每次改动刷 updatedAt，与 storage.ts 一致） */
+    appPut(arrName, entity) {
+      const arr = holder[arrName]
+      const e = { ...entity, updatedAt: now() }
+      const i = arr.findIndex((x) => String(x.id) === String(e.id))
+      if (i >= 0) arr[i] = { ...arr[i], ...e }
+      else arr.push(e)
+      return e
+    },
+    /** 模拟页面可见列表：软删的不显示 */
+    visible: (arrName) => holder[arrName].filter((e) => !e.deleted),
+    /** 模拟一次同步：账单链路空转，只跑实体 LWW */
+    sync() {
+      return runSync({
+        cloud, source: 'entity', ownerId,
+        getLocal: async () => [], addLocal: async () => 0, markLocal: async () => 0, markAlive: async () => 0,
+        store, now, todos: specOf(todos), recurring: specOf(recurring),
+      })
+    },
+  }
+}
+
 const REC = {
   lunch:  { type: 'expense', amount: 25,   categoryKey: 'food',      categoryName: '餐饮饮食', subcategoryKey: 'lunch',  subcategoryName: '午餐',     note: '公司楼下', date: '2026-09-18' },
   bus:    { type: 'expense', amount: 2,    categoryKey: 'transport', categoryName: '交通出行', subcategoryKey: 'bus',    subcategoryName: '公交地铁', note: '', date: '2026-09-19' },
@@ -459,6 +503,44 @@ async function main() {
   assert(freshMini.visible().some((r) => r.amount === 2) && freshMini.visible().some(c21),
     '被恢复过的公交 ¥2 和咖啡 ¥18 在新设备上也存活')
   assert(!freshMini.visible().some((r) => r.amount === 25 && r.date === '2026-09-20'), '被删未恢复的加班餐 ¥25 在新设备上也不显示')
+
+  console.log('\n【场景⑮】v0.7.3 待办跨端 LWW 快照：新增跟随 → 编辑跟随 → 软删不复活 → 收敛')
+  const entStoreA = memoryStore()
+  const entA = createEntityDevice(cloud, HOUSE_A, entStoreA)
+  const entB = createEntityDevice(cloud, HOUSE_A, entStoreA) // 同户两台设备（共用 lastSyncAt 键，互不干扰）
+  entA.appPut('todos', { id: 't-rent', title: '交房租', cycle: 'monthly', nextDate: '2026-10-01', isActive: true, completedDates: [] })
+  let er = await entA.sync()
+  assert(er.ok && er.pushed === 1 && er.pulled === 0, `A 新增待办 → 上云 1 快照（pushed=${er.pushed}）`)
+  er = await entB.sync()
+  assert(er.ok && er.pushed === 0 && er.pulled === 1, `B 拉到待办 1 条（pulled=${er.pulled}）`)
+  assert(!!entB.holder.todos.find((t) => t.id === 't-rent') && entB.visible('todos').length === 1, 'B 端可见新待办「交房租」')
+  entB.appPut('todos', { id: 't-rent', title: '交房租', cycle: 'monthly', nextDate: '2026-10-01', isActive: true, amount: 2400, categoryKey: 'housing', subcategoryKey: 'rent', categoryName: '住房居家', subcategoryName: '房租/房贷', completedDates: ['2026-09-20'] }) // B 端补全金额并完成
+  await entB.sync()
+  er = await entA.sync()
+  assert(er.pulled === 1 && entA.holder.todos[0].completedDates?.[0] === '2026-09-20' && entA.holder.todos[0].amount === 2400,
+    `A 端跟随 B 的编辑快照（完成日期/金额已更新，pulled=${er.pulled}）`)
+  entA.appPut('todos', { id: 't-rent', title: '交房租', cycle: 'monthly', nextDate: '2026-10-01', isActive: true, completedDates: ['2026-09-20'], deleted: true }) // A 端软删
+  await entA.sync()
+  er = await entB.sync()
+  assert(er.ok && er.pulled === 1 && entB.visible('todos').length === 0, 'B 端待办随软删快照消失（不是被旧快照复活）')
+  er = await entA.sync()
+  const er2 = await entB.sync()
+  assert(er.pushed === 0 && er.pulled === 0 && er2.pushed === 0 && er2.pulled === 0, '收敛：删后再同步 0 进 0 出，快照不膨胀回灌')
+
+  console.log('\n【场景⑯】v0.7.3 周期账单跨端改下次日期 → 对端跟随不倒灌；他户不可见')
+  const entC = createEntityDevice(cloud, HOUSE_A, memoryStore()) // 同户第三台（空本地，验证从云端全量拉回）
+  entB.appPut('recurring', { id: 'r-sub', type: 'expense', amount: 25, cycle: 'monthly', nextDate: '2026-10-05', isActive: true, categoryName: '娱乐休闲', subcategoryName: '游戏充值' })
+  await entB.sync()
+  entB.appPut('recurring', { id: 'r-sub', type: 'expense', amount: 25, cycle: 'monthly', nextDate: '2026-11-05', isActive: true, categoryName: '娱乐休闲', subcategoryName: '游戏充值' }) // 执行后自动推进日期
+  er = await entB.sync()
+  assert(er.ok && er.pushed === 1, `B 改 nextDate 后上云最新快照（pushed=${er.pushed}）`)
+  er = await entC.sync()
+  const rOnC = entC.holder.recurring.find((r) => r.id === 'r-sub')
+  assert(er.ok && !!rOnC && rOnC.nextDate === '2026-11-05', `新设备只拿到最新日期 11-05，旧快照 10-05 不生效（实际 ${rOnC && rOnC.nextDate}）`)
+  const bobEnt = createEntityDevice(cloud, HOUSE_B, memoryStore())
+  er = await bobEnt.sync()
+  assert(er.ok && er.pushed === 0 && er.pulled === 0 && bobEnt.holder.todos.length === 0 && bobEnt.holder.recurring.length === 0,
+    'B 户（不同同步码）完全看不到 A 户的待办/周期快照')
 
   // ---- 汇总 ----
 

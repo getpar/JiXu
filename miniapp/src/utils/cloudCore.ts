@@ -60,8 +60,24 @@ export interface CloudRevive {
   label?: string
 }
 
-/** records 集合里的任意文档：账单记录 / 删除凭证 / 撤销凭条 */
-export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive
+/**
+ * 实体快照文档（v0.7.3 待办/周期账单同步）：这类是会被反复修改的小对象，
+ * 用"快照追加 + updatedAt 最新者胜"（LWW）模型：每次改动追加一条完整新快照，
+ * 各端按 entityId 取 updatedAt 最大的一份为当前状态。仍然只用"新增"权限，集合权限保持最严。
+ * 删除 = deleted:true 的快照（软删，防旧快照倒灌复活）。
+ */
+export interface CloudEntityDoc {
+  _id?: string
+  kind: 'todo' | 'recurring'
+  entityId: string        // 本地业务 id（稳定不变）
+  ownerId: string
+  updatedAt: number       // 本次快照的修改时刻
+  source?: string
+  data: Record<string, any> // 完整快照（含 deleted 标记），字段由各端自定义
+}
+
+/** records 集合里的任意文档：账单记录 / 删除凭证 / 撤销凭条 / 实体快照 */
+export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive | CloudEntityDoc
 
 export function isTombstone(d: CloudDoc): d is CloudTombstone {
   return (d as CloudTombstone).kind === 'tombstone'
@@ -69,6 +85,10 @@ export function isTombstone(d: CloudDoc): d is CloudTombstone {
 
 export function isRevive(d: CloudDoc): d is CloudRevive {
   return (d as CloudRevive).kind === 'revive'
+}
+
+export function isEntityDoc(d: CloudDoc): d is CloudEntityDoc {
+  return (d as CloudEntityDoc).kind === 'todo' || (d as CloudEntityDoc).kind === 'recurring'
 }
 
 /** 可同步的本地记录（与小程序 RecordItem / 桌面端 records 表字段兼容） */
@@ -92,11 +112,12 @@ export interface KVStore {
   set(key: string, value: string): void
 }
 
-/** 待上传的新文档：账单 / 删除凭证 / 撤销凭条（不含 _id） */
+/** 待上传的新文档：账单 / 删除凭证 / 撤销凭条 / 实体快照（不含 _id） */
 export type NewCloudDoc =
   | Omit<CloudRecord, '_id'>
   | Omit<CloudTombstone, '_id'>
   | Omit<CloudRevive, '_id'>
+  | Omit<CloudEntityDoc, '_id'>
 
 /** 云数据库集合的最小操作面：模拟云 和 wx.cloud 真云 都实现它 */
 export interface CloudCollection {
@@ -239,8 +260,20 @@ export interface SyncDeps {
   markAlive: (key: string, count: number) => Promise<number>
   /** 存放 lastSyncAt 的键值存储 */
   store: KVStore
+  /** v0.7.3 待办实体同步（可选）：getLocal 返回含已软删项的全部待办，apply 按 id 覆盖/新增本地 */
+  todos?: EntitySyncSpec
+  /** v0.7.3 周期账单实体同步（可选） */
+  recurring?: EntitySyncSpec
   /** 可注入的时钟（便于测试） */
   now?: () => number
+}
+
+/** v0.7.3 实体同步的两端适配接口（小程序/桌面各自实现） */
+export interface EntitySyncSpec {
+  /** 读本地全部实体（含 deleted 软删项），每项必须有稳定 id 和 updatedAt */
+  getLocal: () => Promise<Array<Record<string, any> & { id: string; updatedAt?: number }>>
+  /** 应用云端快照（含 deleted 标记）：按 id 新增/覆盖，返回实际变更数 */
+  apply: (items: Array<Record<string, any>>) => Promise<number>
 }
 
 export interface SyncResult {
@@ -259,6 +292,47 @@ export function countByRecordKey<T extends KeyPart>(list: T[]): Map<string, numb
 }
 
 /**
+ * v0.7.3 单类实体（待办或周期账单）的 LWW 同步：
+ * 云端按 entityId 取最新快照 → 本地比云端新则补传、云端比本地新则覆盖本地（含 deleted 标记）。
+ * 同一时刻平手时以本地为准（下轮再处理，结果仍收敛）。
+ */
+async function syncEntities(
+  kind: 'todo' | 'recurring',
+  spec: EntitySyncSpec,
+  cloud: CloudCollection,
+  ownerId: string,
+  cloudDocs: CloudEntityDoc[],
+  now: number,
+): Promise<{ pushed: number; pulled: number }> {
+  const latest = new Map<string, CloudEntityDoc>()
+  for (const d of cloudDocs) {
+    const cur = latest.get(d.entityId)
+    if (!cur || (d.updatedAt || 0) > (cur.updatedAt || 0)) latest.set(d.entityId, d)
+  }
+  const local = await spec.getLocal()
+  const localById = new Map<string, Record<string, any> & { id: string; updatedAt?: number }>()
+  let pushed = 0
+  for (const item of local) {
+    localById.set(item.id, item)
+    const c = latest.get(item.id)
+    const itemTs = item.updatedAt || 0
+    if (!c || itemTs > (c.updatedAt || 0)) {
+      const id = await cloud.add({ kind, entityId: item.id, ownerId, updatedAt: itemTs || now, data: item })
+      if (id) pushed++
+    }
+  }
+  const incoming: Array<Record<string, any>> = []
+  latest.forEach((c, id) => {
+    const l = localById.get(id)
+    if (!l || (c.updatedAt || 0) > (l.updatedAt || 0)) {
+      if (c.data) incoming.push({ ...c.data, id, updatedAt: c.updatedAt }) // id 以 entityId 为准，防脏快照
+    }
+  })
+  const pulled = incoming.length > 0 ? await spec.apply(incoming) : 0
+  return { pushed, pulled }
+}
+
+/**
  * 执行一次完整双向同步（v0.6.7：笔数配对 + 删除凭证 + 撤销凭条），不变式：
  *   每键本地总行数(存活+已删) ↔ 云端账单数；本地(已删数+累计恢复数) ↔ 云端凭证数；本地累计恢复数 ↔ 云端撤销数。
  * 1. 本地总行数 > 云端账单数 → 补传差额账单
@@ -274,9 +348,11 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
   try {
     const docs = await deps.cloud.listAll(deps.ownerId)
     const mine = docs.filter((d) => d.ownerId === deps.ownerId) // 再验一次码，防驱动层漏筛
-    const cloudRecs = mine.filter((d): d is CloudRecord => !isTombstone(d) && !isRevive(d))
+    const cloudRecs = mine.filter((d): d is CloudRecord => !isTombstone(d) && !isRevive(d) && !isEntityDoc(d))
     const cloudTombs = mine.filter((d): d is CloudTombstone => isTombstone(d))
     const cloudRevs = mine.filter((d): d is CloudRevive => isRevive(d))
+    const cloudTodoDocs = mine.filter((d): d is CloudEntityDoc => (d as CloudEntityDoc).kind === 'todo')
+    const cloudRecurDocs = mine.filter((d): d is CloudEntityDoc => (d as CloudEntityDoc).kind === 'recurring')
 
     const cloudRecCounts = countByRecordKey(cloudRecs)
     const cloudTombCounts = new Map<string, number>()
@@ -371,6 +447,16 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     }
     for (const a of pendingAlives) {
       pulled += await deps.markAlive(a.k, a.need)
+    }
+
+    // 4b. v0.7.3 待办/周期账单实体同步（LWW 快照，与账单链路互不干扰）
+    if (deps.todos) {
+      const r = await syncEntities('todo', deps.todos, deps.cloud, deps.ownerId, cloudTodoDocs, now)
+      pushed += r.pushed; pulled += r.pulled
+    }
+    if (deps.recurring) {
+      const r = await syncEntities('recurring', deps.recurring, deps.cloud, deps.ownerId, cloudRecurDocs, now)
+      pushed += r.pushed; pulled += r.pulled
     }
 
     // 5. 更新同步时间

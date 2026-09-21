@@ -130,11 +130,26 @@ export interface CloudRevive {
   label?: string
 }
 
-export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive
+/**
+ * 实体快照文档（v0.7.3 待办/周期账单同步，与小程序端 cloudCore.ts 格式一致）：
+ * 每次改动追加一条完整新快照，各端按 entityId 取 updatedAt 最大的一份；删除 = deleted:true 快照
+ */
+export interface CloudEntityDoc {
+  _id?: string
+  kind: 'todo' | 'recurring'
+  entityId: string
+  ownerId: string
+  updatedAt: number
+  source?: string
+  data: Record<string, any>
+}
+
+export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive | CloudEntityDoc
 export type NewCloudDoc =
   | Omit<CloudRecord, '_id'>
   | Omit<CloudTombstone, '_id'>
   | Omit<CloudRevive, '_id'>
+  | Omit<CloudEntityDoc, '_id'>
 
 export function isTombstone(d: CloudDoc): d is CloudTombstone {
   return (d as CloudTombstone).kind === 'tombstone'
@@ -142,6 +157,10 @@ export function isTombstone(d: CloudDoc): d is CloudTombstone {
 
 export function isRevive(d: CloudDoc): d is CloudRevive {
   return (d as CloudRevive).kind === 'revive'
+}
+
+export function isEntityDoc(d: CloudDoc): d is CloudEntityDoc {
+  return (d as CloudEntityDoc).kind === 'todo' || (d as CloudEntityDoc).kind === 'recurring'
 }
 
 /** 凭证/凭条的人话摘要（与小程序 cloudCore.docLabel 格式一致） */
@@ -279,9 +298,47 @@ function parseKey(key: string): MarkRequest['parts'] | null {
 }
 
 /**
+ * v0.7.3 单类实体（待办/周期账单）LWW 同步：与小程序端 cloudCore.syncEntities 同算法。
+ * 返回 toUpload（需传云端的快照文档）与 incoming（需回写本地的快照数据）
+ */
+function planEntities(
+  kind: 'todo' | 'recurring',
+  local: EntitySnapshot[],
+  cloudDocs: CloudEntityDoc[],
+): { toUpload: NewCloudDoc[]; incoming: EntitySnapshot[] } {
+  const latest = new Map<string, CloudEntityDoc>()
+  for (const d of cloudDocs) {
+    const cur = latest.get(d.entityId)
+    if (!cur || (d.updatedAt || 0) > (cur.updatedAt || 0)) latest.set(d.entityId, d)
+  }
+  const localById = new Map<string, EntitySnapshot>()
+  const toUpload: NewCloudDoc[] = []
+  for (const item of local) {
+    if (!item.id) continue
+    localById.set(item.id, item)
+    const c = latest.get(item.id)
+    const ts = item.updatedAt || 0
+    if (!c || ts > (c.updatedAt || 0)) {
+      toUpload.push({ kind, entityId: item.id, ownerId: getOwnerId(), updatedAt: ts || Date.now(), source: 'desktop', data: item })
+    }
+  }
+  const incoming: EntitySnapshot[] = []
+  latest.forEach((c, id) => {
+    const l = localById.get(id)
+    if (!l || (c.updatedAt || 0) > (l.updatedAt || 0)) {
+      if (c.data) incoming.push({ ...c.data, id, updatedAt: c.updatedAt })
+    }
+  })
+  return { toUpload, incoming }
+}
+
+type EntitySnapshot = Record<string, any> & { id: string; updatedAt?: number }
+
+/**
  * 执行完整双向同步（v0.6.7：笔数配对 + 删除凭证 + 撤销凭条，与小程序端 runSync 算法对齐）。
  * 不变式：每键本地总行数 ↔ 云端账单数；本地(已删+累计恢复) ↔ 云端凭证数；本地累计恢复 ↔ 云端撤销数。
  * 返回 newCloudRecords = 需新增入库的账单；toMark = 按凭证软删；toAlive = 按撤销凭条恢复
+ * v0.7.3：额外处理待办/周期账单实体快照（LWW），返回 todoIncoming/recurringIncoming 需回写 SQLite
  */
 export async function performSync(
   localRecords: {
@@ -289,14 +346,26 @@ export async function performSync(
     subcategoryKey: string; subcategoryName: string; note: string; date: string
     deleted?: number; reviveCount?: number
   }[],
-): Promise<{ result: SyncResult; newCloudRecords: CloudRecord[]; toMark: MarkRequest[]; toAlive: MarkRequest[] }> {
-  if (!db) return { result: { success: false, uploaded: 0, downloaded: 0, error: '未连接云端' }, newCloudRecords: [], toMark: [], toAlive: [] }
+  localTodos: EntitySnapshot[] = [],
+  localRecurring: EntitySnapshot[] = [],
+): Promise<{
+  result: SyncResult
+  newCloudRecords: CloudRecord[]
+  toMark: MarkRequest[]
+  toAlive: MarkRequest[]
+  todoIncoming: EntitySnapshot[]
+  recurringIncoming: EntitySnapshot[]
+}> {
+  const empty = { result: { success: false, uploaded: 0, downloaded: 0, error: '未连接云端' }, newCloudRecords: [] as CloudRecord[], toMark: [] as MarkRequest[], toAlive: [] as MarkRequest[], todoIncoming: [] as EntitySnapshot[], recurringIncoming: [] as EntitySnapshot[] }
+  if (!db) return empty
 
   try {
     const docs = await downloadAllRecords()
-    const cloudRecs = docs.filter((d) => !isTombstone(d) && !isRevive(d)) as CloudRecord[]
+    const cloudRecs = docs.filter((d) => !isTombstone(d) && !isRevive(d) && !isEntityDoc(d)) as CloudRecord[]
     const cloudTombs = docs.filter((d) => isTombstone(d)) as CloudTombstone[]
     const cloudRevs = docs.filter((d) => isRevive(d)) as CloudRevive[]
+    const cloudTodoDocs = docs.filter((d) => (d as CloudEntityDoc).kind === 'todo') as CloudEntityDoc[]
+    const cloudRecurDocs = docs.filter((d) => (d as CloudEntityDoc).kind === 'recurring') as CloudEntityDoc[]
     const cloudRecCounts = countBy(cloudRecs.map(recordKeyOf))
     const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
     const cloudReviveCounts = countBy(cloudRevs.map((v) => v.targetKey))
@@ -348,20 +417,25 @@ export async function performSync(
         pushRevPerKey.set(k, done + 1)
       }
     }
+    // 2c. v0.7.3 待办/周期账单实体快照（LWW）：需补传的快照并入本轮上传，需回写的本地快照带回去
+    const todoPlan = planEntities('todo', localTodos, cloudTodoDocs)
+    const recurPlan = planEntities('recurring', localRecurring, cloudRecurDocs)
+    toUpload.push(...todoPlan.toUpload, ...recurPlan.toUpload)
+
     let uploaded = 0
     if (toUpload.length > 0) {
       const up = await uploadRecords(toUpload)
       uploaded = up.uploaded
       // 该传却一条都没传上去 = 写入通道断了，必须把真实错误抱出来，不能再冒充"已最新"
       if (up.uploaded === 0) {
-        return { result: { success: false, uploaded: 0, downloaded: 0, error: `云端写入失败（${up.failed} 条未传）：${up.firstError || '未知原因'} — 请检查 records 集合是否存在、权限是否允许创建、匿名登录是否开启` }, newCloudRecords: [], toMark: [], toAlive: [] }
+        return { result: { success: false, uploaded: 0, downloaded: 0, error: `云端写入失败（${up.failed} 条未传）：${up.firstError || '未知原因'} — 请检查 records 集合是否存在、权限是否允许创建、匿名登录是否开启` }, newCloudRecords: [], toMark: [], toAlive: [], todoIncoming: [], recurringIncoming: [] }
       }
     }
 
     // 3. 补拉账单：云端账单数超出本地总行数的差额，限上次同步后写入的（刚自己传的因差额为 0 不倒灌）
     const meta = await getSyncMeta()
     const rawDocs = meta ? await downloadSince(meta.lastSyncAt) : docs
-    const rawRecs = rawDocs.filter((d) => !isTombstone(d) && !isRevive(d)) as CloudRecord[]
+    const rawRecs = rawDocs.filter((d) => !isTombstone(d) && !isRevive(d) && !isEntityDoc(d)) as CloudRecord[]
     const takenPerKey = new Map<string, number>()
     const newCloudRecords: CloudRecord[] = []
     for (const r of rawRecs) {
@@ -399,9 +473,11 @@ export async function performSync(
       newCloudRecords,
       toMark,
       toAlive,
+      todoIncoming: todoPlan.incoming,
+      recurringIncoming: recurPlan.incoming,
     }
   } catch (e: any) {
-    return { result: { success: false, uploaded: 0, downloaded: 0, error: e.message }, newCloudRecords: [], toMark: [], toAlive: [] }
+    return { result: { success: false, uploaded: 0, downloaded: 0, error: e.message }, newCloudRecords: [], toMark: [], toAlive: [], todoIncoming: [], recurringIncoming: [] }
   }
 }
 

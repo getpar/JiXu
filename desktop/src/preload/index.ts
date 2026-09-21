@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteRecurring: (id: number) => ipcRenderer.invoke('recurring:delete', id),
   toggleRecurring: (id: number, active: boolean) => ipcRenderer.invoke('recurring:toggle', id, active),
   executeRecurring: (id: number) => ipcRenderer.invoke('recurring:executeNow', id),
+  // v0.7.3 周期账单云同步（标准化快照，含软删项）
+  getRecurringForSync: () => ipcRenderer.invoke('recurring:getAllForSync'),
+  applyCloudRecurring: (items: Record<string, unknown>[]) => ipcRenderer.invoke('recurring:applyCloud', items),
   // 主进程到期自动入账后推送提醒（启动时积压的会在界面加载完后补发）
   onRecurringAutoRun: (callback: (list: { name: string; amount: number; type: string; nextDate: string }[]) => void) => {
     ipcRenderer.on('recurring:autoExecuted', (_event, list) => callback(list))
@@ -59,6 +62,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteTodo: (id: number) => ipcRenderer.invoke('todos:delete', id),
   toggleTodo: (id: number, active: boolean) => ipcRenderer.invoke('todos:toggle', id, active),
   completeTodo: (id: number) => ipcRenderer.invoke('todos:complete', id),
+  // v0.7.3 待办云同步（标准化快照，含软删项）
+  getTodosForSync: () => ipcRenderer.invoke('todos:getAllForSync'),
+  applyCloudTodos: (items: Record<string, unknown>[]) => ipcRenderer.invoke('todos:applyCloud', items),
 
   // 快捷键
   getShortcut: () => ipcRenderer.invoke('shortcut:get'),

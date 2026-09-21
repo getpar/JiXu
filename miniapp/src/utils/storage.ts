@@ -42,6 +42,9 @@ export async function syncNow(): Promise<SyncResult> {
     markLocal: markLocalDeleted,
     markAlive: markLocalAlive,
     store: taroStore,
+    // v0.7.3 待办/周期账单参与云同步（LWW 快照，与账单链路互不干扰）
+    todos: { getLocal: getAllTodos, apply: applyCloudTodos },
+    recurring: { getLocal: getAllRecurringBills, apply: applyCloudRecurringBills },
   })
 }
 
@@ -324,9 +327,17 @@ export interface RecurringBill {
   cycle: 'daily' | 'weekly' | 'monthly' | 'yearly'
   nextDate: string
   isActive: boolean
+  updatedAt?: number   // v0.7.3 云同步 LWW 依据：每次改动刷新
+  deleted?: boolean    // v0.7.3 软删：防云端旧快照倒灌复活，页面自动过滤
 }
 
+/** 页面展示用：过滤已软删项 */
 export async function getRecurringBills(): Promise<RecurringBill[]> {
+  return (await getAllRecurringBills()).filter((b) => !b.deleted)
+}
+
+/** 同步引擎用：含软删项的全部底数 */
+async function getAllRecurringBills(): Promise<RecurringBill[]> {
   const raw = Taro.getStorageSync('recurring_bills')
   return raw ? JSON.parse(raw) : []
 }
@@ -335,18 +346,33 @@ function saveRecurringBills(list: RecurringBill[]): void {
   Taro.setStorageSync('recurring_bills', JSON.stringify(list))
 }
 
+/** 应用云端周期账单快照：按 id 新增/覆盖（含 deleted 标记） */
+async function applyCloudRecurringBills(items: Array<Record<string, any>>): Promise<number> {
+  const list = await getAllRecurringBills()
+  let changed = 0
+  for (const it of items) {
+    const i = list.findIndex((b) => b.id === it.id)
+    if (i >= 0) list[i] = it as RecurringBill
+    else list.push(it as RecurringBill)
+    changed++
+  }
+  if (changed > 0) saveRecurringBills(list)
+  return changed
+}
+
 export async function addRecurringBill(bill: Omit<RecurringBill, 'id'>): Promise<void> {
-  const list = await getRecurringBills()
-  list.push({ ...bill, id: Date.now().toString() })
+  const list = await getAllRecurringBills()
+  list.push({ ...bill, id: Date.now().toString(), updatedAt: Date.now() })
   saveRecurringBills(list)
 }
 
+/** v0.7.3 删除改软删（同步靠 deleted:true 快照传播，其它端跟删） */
 export async function deleteRecurringBill(id: string): Promise<void> {
-  saveRecurringBills((await getRecurringBills()).filter((b) => b.id !== id))
+  saveRecurringBills((await getAllRecurringBills()).map((b) => (b.id === id ? { ...b, deleted: true, updatedAt: Date.now() } : b)))
 }
 
 export async function toggleRecurringBill(id: string, active: boolean): Promise<void> {
-  saveRecurringBills((await getRecurringBills()).map((b) => (b.id === id ? { ...b, isActive: active } : b)))
+  saveRecurringBills((await getAllRecurringBills()).map((b) => (b.id === id ? { ...b, isActive: active, updatedAt: Date.now() } : b)))
 }
 
 /** 向后推一个周期（纯日期计算，手动/自动执行共用；v0.6.9 提取自 executeRecurringBill） */
@@ -381,6 +407,7 @@ export async function executeRecurringBill(id: string): Promise<void> {
 
   // 2. 推算下一个周期
   bill.nextDate = advanceDate(bill.nextDate, bill.cycle)
+  bill.updatedAt = Date.now()
 
   saveRecurringBills(bills)
 }
@@ -409,6 +436,7 @@ export async function checkAndExecuteDueBills(): Promise<{ name: string; amount:
       if (next === prev) break // 防死循环
     }
     bill.nextDate = next
+    bill.updatedAt = Date.now()
     changed = true
     executed.push({ name: bill.subcategoryName || bill.categoryName, amount: bill.amount })
   }
@@ -434,15 +462,37 @@ export interface Todo {
   note?: string
   completedDates: string[]
   createdAt: string
+  updatedAt?: number   // v0.7.3 云同步 LWW 依据
+  deleted?: boolean    // v0.7.3 软删：防云端旧快照倒灌复活
 }
 
+/** 页面展示用：过滤已软删项 */
 export async function getTodos(): Promise<Todo[]> {
+  return (await getAllTodos()).filter((t) => !t.deleted)
+}
+
+/** 同步引擎用：含软删项的全部底数 */
+async function getAllTodos(): Promise<Todo[]> {
   const raw = Taro.getStorageSync('todos')
   return raw ? JSON.parse(raw) : []
 }
 
 function saveTodos(list: Todo[]): void {
   Taro.setStorageSync('todos', JSON.stringify(list))
+}
+
+/** 应用云端待办快照：按 id 新增/覆盖（含 deleted 标记） */
+async function applyCloudTodos(items: Array<Record<string, any>>): Promise<number> {
+  const list = await getAllTodos()
+  let changed = 0
+  for (const it of items) {
+    const i = list.findIndex((t) => t.id === it.id)
+    if (i >= 0) list[i] = it as Todo
+    else list.push(it as Todo)
+    changed++
+  }
+  if (changed > 0) saveTodos(list)
+  return changed
 }
 
 /** v0.7.2 方案B App 内强提醒：统计今天到期/已逾期未完成的待办数（周期账单已自动补记，无需提醒） */
@@ -460,29 +510,31 @@ export async function getDueSummary(): Promise<{ due: number; overdue: number }>
 }
 
 export async function addTodo(todo: Omit<Todo, 'id' | 'completedDates' | 'createdAt'>): Promise<void> {
-  const list = await getTodos()
+  const list = await getAllTodos()
   list.unshift({
     ...todo,
     id: Date.now().toString(),
     completedDates: [],
     createdAt: localDateStr(),
+    updatedAt: Date.now(),
   })
   saveTodos(list)
 }
 
+/** v0.7.3 删除改软删（同步靠 deleted:true 快照传播，其它端跟删） */
 export async function deleteTodo(id: string): Promise<void> {
-  saveTodos((await getTodos()).filter((t) => t.id !== id))
+  saveTodos((await getAllTodos()).map((t) => (t.id === id ? { ...t, deleted: true, updatedAt: Date.now() } : t)))
 }
 
 export async function toggleTodo(id: string, active: boolean): Promise<void> {
-  saveTodos((await getTodos()).map((t) => (t.id === id ? { ...t, isActive: active } : t)))
+  saveTodos((await getAllTodos()).map((t) => (t.id === id ? { ...t, isActive: active, updatedAt: Date.now() } : t)))
 }
 
 /** 完成待办：记录完成日期，自动推算下一周期，有关联金额则自动记账 */
 export async function completeTodo(id: string): Promise<void> {
-  const list = await getTodos()
+  const list = await getAllTodos()
   const todo = list.find((t) => t.id === id)
-  if (!todo) return
+  if (!todo || todo.deleted) return
 
   const today = localDateStr()
   if (todo.completedDates.includes(today)) return // 防重复：今天已完成过则忽略（与桌面端对齐，防界面误判后重复记账）
@@ -516,5 +568,6 @@ export async function completeTodo(id: string): Promise<void> {
     todo.nextDate = localDateStr(next)
   }
 
+  todo.updatedAt = Date.now()
   saveTodos(list)
 }
