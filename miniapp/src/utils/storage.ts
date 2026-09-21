@@ -471,6 +471,7 @@ export async function completeTodo(id: string): Promise<void> {
   if (!todo) return
 
   const today = localDateStr()
+  if (todo.completedDates.includes(today)) return // 防重复：今天已完成过则忽略（与桌面端对齐，防界面误判后重复记账）
   todo.completedDates.push(today)
 
   // 有关联金额 → 自动创建记账记录

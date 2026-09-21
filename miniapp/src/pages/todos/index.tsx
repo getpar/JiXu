@@ -39,6 +39,11 @@ export default function Todos(): JSX.Element {
   }
 
   const activeTodos = useMemo(() => todos.filter((t) => t.isActive).sort((a, b) => a.nextDate.localeCompare(b.nextDate)), [todos])
+  // v0.6.9 状态一眼分明：今天已完成（划线置底）/ 今天到期未做（橙色高亮）/ 未到期（灰色）
+  const today = localDateStr()
+  const doneTodayOf = (t: Todo) => t.completedDates[t.completedDates.length - 1] === today
+  const undoneTodos = useMemo(() => activeTodos.filter((t) => !doneTodayOf(t)), [todos])
+  const doneTodayTodos = useMemo(() => activeTodos.filter((t) => doneTodayOf(t)), [todos])
   // 已完成的：停用的 + 单次型已完成的
   const completedTodos = useMemo(() => todos.filter((t) => {
     if (!t.isActive) return true
@@ -100,9 +105,8 @@ export default function Todos(): JSX.Element {
     await toggleTodo(id, active); loadData()
   }
 
-  // 今天到期的待办
-  const today = localDateStr()
-  const dueToday = activeTodos.filter((t) => t.nextDate <= today)
+  // 今天到期且还没完成的（已完成的不再进提醒计数）
+  const dueToday = undoneTodos.filter((t) => t.nextDate <= today)
 
   return (
     <View className='wrap'>
@@ -110,13 +114,13 @@ export default function Todos(): JSX.Element {
       <View className='top-bar'>
         <Text className='back-btn' onClick={() => Taro.navigateBack()}>← 返回</Text>
         <Text className='title'>🔔 待办事项</Text>
-        <Text className='badge'>{activeTodos.length}</Text>
+        <Text className='badge'>{undoneTodos.length}</Text>
       </View>
 
-      {/* 今日到期 */}
+      {/* 今日到期（不含已完成的） */}
       {dueToday.length > 0 && (
         <View className='alert'>
-          <Text>📌 今天有 {dueToday.length} 个待办到期</Text>
+          <Text>📌 今天有 {dueToday.length} 个待办到期还没完成</Text>
         </View>
       )}
 
@@ -125,26 +129,32 @@ export default function Todos(): JSX.Element {
         <Text className='add-btn-text'>+ 添加待办</Text>
       </View>
 
-      {/* 进行中 */}
+      {/* 进行中：未完成在前、今天已完成的划线置底 */}
       {activeTodos.length === 0 ? (
         <View className='empty'>
           <Text className='empty-icon'>☑️</Text>
           <Text>暂无待办</Text>
         </View>
       ) : (
-        <View className='section-label'>🔴 进行中 ({activeTodos.length})</View>
+        <View className='section-label'>🔴 进行中 ({undoneTodos.length}{doneTodayTodos.length > 0 ? ` · 今天已完成 ${doneTodayTodos.length}` : ''})</View>
       )}
-      {activeTodos.map((t) => {
-        const overdue = t.nextDate < today
+      {[...undoneTodos, ...doneTodayTodos].map((t) => {
+        const done = doneTodayOf(t)
+        const due = !done && t.nextDate <= today
+        const overdue = !done && t.nextDate < today
         return (
-          <View key={t.id} className='todo-card'>
+          <View key={t.id} className={`todo-card${done ? ' finished-today' : due ? ' due-today' : ''}`}>
             <View className='todo-header'>
-              <View className={`cycle-tag ${t.cycle} ${overdue ? 'overdue' : ''}`}>
-                <Text>{cycleTags[t.cycle]} {cycleLabels[t.cycle]}{overdue ? ' 已过期' : ''}</Text>
+              <View className='tag-row'>
+                <View className={`cycle-tag ${t.cycle} ${overdue ? 'overdue' : ''}`}>
+                  <Text>{cycleTags[t.cycle]} {cycleLabels[t.cycle]}{overdue ? ' 已过期' : ''}</Text>
+                </View>
+                {done && <View className='status-tag done'><Text>✓ 今天已完成</Text></View>}
+                {due && <View className='status-tag due'><Text>🔔 今天到期</Text></View>}
               </View>
-              <Text className='todo-date'>{formatDate(t.nextDate)}{t.time ? ` ${t.time}` : ''}</Text>
+              <Text className='todo-date'>{done ? `下次 ${formatDate(t.nextDate)}` : `${formatDate(t.nextDate)}${t.time ? ` ${t.time}` : ''}`}</Text>
             </View>
-            <Text className='todo-title'>{t.title}</Text>
+            <Text className={`todo-title${done ? ' struck' : ''}`}>{t.title}</Text>
             {t.amount && t.amount > 0 && (
               <View className='todo-amount-row'>
                 <Text className='todo-amount'>💰 ¥{t.amount.toFixed(0)}</Text>
@@ -153,9 +163,13 @@ export default function Todos(): JSX.Element {
             )}
             {t.note && <Text className='todo-note'>💬 {t.note}</Text>}
             <View className='todo-actions'>
-              <View className='action-complete' onClick={() => handleComplete(t)}>
-                <Text>{t.amount ? '✓ 完成并记账' : '✓ 完成'}</Text>
-              </View>
+              {done ? (
+                <View className='action-done'><Text>✓ 今天已完成</Text></View>
+              ) : (
+                <View className='action-complete' onClick={() => handleComplete(t)}>
+                  <Text>{t.amount ? '✓ 完成并记账' : '✓ 完成'}</Text>
+                </View>
+              )}
               <View className={`toggle-btn ${t.isActive ? 'on' : 'off'}`} onClick={() => handleToggle(t.id, !t.isActive)}>
                 <Text>停用</Text>
               </View>

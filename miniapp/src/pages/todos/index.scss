@@ -32,6 +32,14 @@
 
 /* ---- 待办卡片 ---- */
 .todo-card { background: #fff; border-radius: 24rpx; padding: 20rpx 24rpx; margin-bottom: 14rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.04); }
+/* v0.6.9 状态分明：今天到期未做（橙色左边框）/ 今天已完成（浅绿底） */
+.todo-card.due-today { border-left: 8rpx solid #FF6B35; }
+.todo-card.finished-today { background: #F0FDF4; }
+.tag-row { display: flex; gap: 8rpx; align-items: center; }
+.status-tag { padding: 4rpx 14rpx; border-radius: 8rpx; font-size: 22rpx; font-weight: 600; }
+.status-tag.due { background: #FFF7ED; color: #EA580C; }
+.status-tag.done { background: #DCFCE7; color: #16A34A; }
+.todo-title.struck { color: #94A3B8; text-decoration: line-through; }
 .todo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10rpx; }
 .cycle-tag { padding: 4rpx 14rpx; border-radius: 8rpx; font-size: 22rpx; font-weight: 500; }
 .cycle-tag.daily { background: #EFF6FF; color: #3B82F6; }
@@ -51,6 +59,9 @@
 .todo-actions { display: flex; gap: 10rpx; align-items: center; margin-top: 12rpx; }
 .action-complete { padding: 10rpx 22rpx; border-radius: 12rpx; background: #10B981; }
 .action-complete Text { font-size: 26rpx; color: #fff; font-weight: 600; }
+/* 今天已完成：浅绿不可点（防误点重复记账，数据层也有防重保险） */
+.action-done { padding: 10rpx 22rpx; border-radius: 12rpx; background: #BBF7D0; }
+.action-done Text { font-size: 26rpx; color: #16A34A; font-weight: 600; }
 .toggle-btn { padding: 10rpx 20rpx; border-radius: 12rpx; font-size: 24rpx; }
 .toggle-btn.on { background: #F1F5F9; color: #64748B; }
 .toggle-btn.off { background: #FEF2F2; color: #EF4444; }
