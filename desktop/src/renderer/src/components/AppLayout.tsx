@@ -386,6 +386,17 @@ function AppLayout(): JSX.Element {
                 >
                   {cloudEnabled ? '同步数据' : '配置云端'}
                 </Button>
+                {/* v0.6.8 修复：连接后也能重新打开弹窗查看/复制/更换同步码 */}
+                <Button
+                  ghost
+                  size="small"
+                  block
+                  icon={<CopyOutlined />}
+                  onClick={openCloudModal}
+                  style={{ marginBottom: 6, borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#94A3B8', fontSize: 12 }}
+                >
+                  同步码 / 云设置
+                </Button>
                 <Button
                   ghost
                   size="small"
@@ -416,6 +427,9 @@ function AppLayout(): JSX.Element {
                 <Button ghost size="small" type="text" icon={<CloudOutlined />}
                   onClick={cloudEnabled ? handleSync : openCloudModal} loading={syncing}
                   style={{ color: cloudEnabled ? '#10B981' : '#CBD5E1' }} />
+                <Button ghost size="small" type="text" icon={<CopyOutlined />}
+                  onClick={openCloudModal} title="同步码 / 云设置"
+                  style={{ color: '#94A3B8' }} />
                 <Button ghost size="small" type="text" icon={<DownloadOutlined />}
                   onClick={handleBackup} style={{ color: '#CBD5E1' }} />
                 <Button ghost size="small" type="text" icon={<UploadOutlined />}
