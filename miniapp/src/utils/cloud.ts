@@ -61,6 +61,9 @@ export function regenerateOwnerId(): string {
 // wx 是微信小程序全局对象（Taro 编译产物中可用），此处不做类型依赖
 declare const wx: any
 
+// v0.7.1 真实连接状态可见化：init 失败原因留底，供云同步弹窗展示（不再假确认）
+let lastInitError = ''
+
 // ---- Taro Storage 键值适配 ----
 
 export const taroStore: KVStore = {
@@ -86,7 +89,8 @@ let wxInited = false
 function createWxCloudCollection(): CloudCollection | null {
   if (!CLOUD_ENV_ID) return null
   if (typeof wx === 'undefined' || !wx.cloud) {
-    console.warn('[Cloud] 当前环境不支持 wx.cloud（开发者工具未勾选云开发或未关联环境），回退到本地模拟云')
+    lastInitError = '当前环境不支持 wx.cloud（开发者工具未勾选云开发或未关联环境）'
+    console.warn('[Cloud] 当前环境不支持 wx.cloud，回退到本地模拟云')
     return null
   }
   try {
@@ -94,6 +98,7 @@ function createWxCloudCollection(): CloudCollection | null {
       wx.cloud.init({ env: CLOUD_ENV_ID, traceUser: true })
       wxInited = true
     }
+    lastInitError = ''
     const db = wx.cloud.database()
     const col = db.collection('records')
     return {
@@ -118,8 +123,24 @@ function createWxCloudCollection(): CloudCollection | null {
       },
     }
   } catch (e: any) {
+    lastInitError = e?.errMsg || e?.message || String(e)
     console.error('[Cloud] wx.cloud 初始化失败，回退到本地模拟云:', e?.message || e)
     return null
+  }
+}
+
+/** v0.7.1 真实连通性自检：实际去云端跑一趟，返回状态与失败原因（云同步弹窗展示用）
+ * 典型失败：环境未关联小程序 AppID（-501000 无权限/环境不存在）、网络不通 */
+export async function testCloud(): Promise<{ real: boolean; detail: string }> {
+  if (!CLOUD_ENV_ID) return { real: false, detail: '未配置云环境 ID，当前为本地模拟云（不会跨设备同步）' }
+  const col = createWxCloudCollection()
+  if (!col) return { real: false, detail: `连接真云失败：${lastInitError || '未知原因'}（数据仅存本机，不会跨设备同步）` }
+  try {
+    await col.listAll(getOwnerId()) // 轻量真实查询：能跑通 = 环境已关联且可读
+    return { real: true, detail: '已连接云环境 ✓' }
+  } catch (e: any) {
+    const msg = e?.errMsg || e?.message || String(e)
+    return { real: false, detail: `读写云端失败：${msg}（最常见原因：CloudBase 控制台未关联本小程序 AppID）` }
   }
 }
 

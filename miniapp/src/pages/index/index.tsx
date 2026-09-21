@@ -2,7 +2,7 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo, useEffect } from 'react'
 import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills } from '../../utils/storage'
-import { getOwnerId, joinOwnerId, regenerateOwnerId, usingRealCloud } from '../../utils/cloud'
+import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
 import type { ThemePref } from '../../utils/theme'
@@ -48,6 +48,8 @@ export default function Index(): JSX.Element {
   const [showCloud, setShowCloud] = useState(false)
   const [ownerId, setOwnerId_] = useState('')
   const [joinInput, setJoinInput] = useState('')
+  // v0.7.1 云端真实连通自检结果（打开弹窗时异步检测，不再假确认）
+  const [cloudTest, setCloudTest] = useState<{ real: boolean; detail: string } | null>(null)
 
   const isCurrentMonth = month === THIS_MONTH
 
@@ -109,7 +111,9 @@ export default function Index(): JSX.Element {
   function openCloud(): void {
     setOwnerId_(getOwnerId())
     setJoinInput('')
+    setCloudTest(null)
     setShowCloud(true)
+    testCloud().then(setCloudTest).catch((e) => setCloudTest({ real: false, detail: `检测失败：${e?.message || e}` }))
   }
 
   function copyOwnerId(): void {
@@ -275,8 +279,8 @@ export default function Index(): JSX.Element {
         <View className='modal' onClick={() => setShowCloud(false)}>
           <View className='modal-box' onClick={(e) => e.stopPropagation()}>
             <Text className='modal-title'>☁️ 云同步</Text>
-            <Text style='font-size:24rpx;color:var(--sub);display:block;margin-bottom:16rpx'>
-              {usingRealCloud() ? '已连接云环境，同码设备共享一本账' : '未连接云环境，当前为本地模拟云'}
+            <Text style={`font-size:24rpx;color:${cloudTest === null ? 'var(--muted)' : cloudTest.real ? '#10B981' : '#EF4444'};display:block;margin-bottom:16rpx`}>
+              {cloudTest === null ? '正在检测云端连通…' : cloudTest.detail}
             </Text>
 
             <Text style='font-size:26rpx;color:var(--text);font-weight:600;display:block;margin-bottom:8rpx'>我的同步码</Text>
