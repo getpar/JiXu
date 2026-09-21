@@ -1,7 +1,7 @@
 import { View, Text, Picker, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow } from '../../utils/storage'
+import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, getDeletedRecords } from '../../utils/storage'
 import * as XLSX from 'xlsx'
 import './index.scss'
 
@@ -16,6 +16,10 @@ export default function History(): JSX.Element {
   const [month, setMonth] = useState('')
   const [type, setType] = useState('')
 
+  // v0.6.8 回收站折叠区：已删除记录（本地留底，可恢复）
+  const [deletedList, setDeletedList] = useState<any[]>([])
+  const [trashOpen, setTrashOpen] = useState(false)
+
   // 编辑弹窗
   const [editOpen, setEditOpen] = useState(false)
   const [editId, setEditId] = useState('')
@@ -28,13 +32,28 @@ export default function History(): JSX.Element {
 
   useDidShow(() => {
     getRecords().then(setRecords)
+    setDeletedList(getDeletedRecords())
     // 进入账单页时与云端同步一次，拉到新记录就重新列表
-    syncNow().then((r) => { if (r.pulled > 0) getRecords().then(setRecords) }).catch(() => { /* ignore */ })
+    syncNow().then((r) => {
+      if (r.pulled > 0) { getRecords().then(setRecords); setDeletedList(getDeletedRecords()) }
+    }).catch(() => { /* ignore */ })
   })
 
   async function handleDelete(id: string): Promise<void> {
     Taro.showModal({ title: '确定删除？', success: async (res) => {
-      if (res.confirm) { await deleteRecord(id); setRecords(await getRecords()); Taro.eventCenter.trigger('dataChanged') }
+      if (res.confirm) { await deleteRecord(id); setRecords(await getRecords()); setDeletedList(getDeletedRecords()); Taro.eventCenter.trigger('dataChanged') }
+    }})
+  }
+
+  // v0.6.8 从回收站恢复（restoreRecord 内部会静默同步，恢复动作跟到其它端）
+  async function handleRestore(id: string): Promise<void> {
+    Taro.showModal({ title: '恢复这条记录？', content: '恢复后将回到账单列表，其它设备同步后也会跟着恢复', success: async (res) => {
+      if (res.confirm) {
+        await restoreRecord(id)
+        setRecords(await getRecords()); setDeletedList(getDeletedRecords())
+        Taro.eventCenter.trigger('dataChanged')
+        Taro.showToast({ title: '已恢复', icon: 'success' })
+      }
     }})
   }
 
@@ -146,6 +165,38 @@ export default function History(): JSX.Element {
           </View>
         </View>
       ))}
+
+      {/* v0.6.8 回收站折叠区：误删的账都留底在这里，点开可恢复 */}
+      {deletedList.length > 0 && (
+        <View className='trash'>
+          <View className='trash-head' onClick={() => setTrashOpen(!trashOpen)}>
+            <Text className='trash-title'>🗑 已删除 ({deletedList.length})</Text>
+            <Text className='trash-arrow'>{trashOpen ? '收起 ▴' : '展开 ▾'}</Text>
+          </View>
+          {trashOpen && (
+            <View>
+              <View className='trash-tip'><Text>误删的账可以恢复，恢复后其它设备同步时也会跟着恢复</Text></View>
+              {deletedList.map((r) => (
+                <View key={r.id} className='trash-record'>
+                  <View className='record-info'>
+                    <View className='record-tags'>
+                      <Text className='tag orange'>{r.categoryName}</Text>
+                      <Text className='tag'>{r.subcategoryName}</Text>
+                    </View>
+                    <Text className='record-date'>{r.date} {r.note || ''}</Text>
+                  </View>
+                  <View className='record-right'>
+                    <Text className='trash-amount'>{r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}</Text>
+                    <View className='record-actions'>
+                      <Text className='restore-btn' onClick={() => handleRestore(r.id)}>恢复</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
 
       {/* 编辑弹窗 */}
       {editOpen && (

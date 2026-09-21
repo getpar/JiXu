@@ -134,6 +134,32 @@ export async function deleteRecord(id: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
+// v0.6.8 回收站：读本地已删除记录（按日期倒序），供账单页「已删除」折叠区展示
+export function getDeletedRecords(): RecordItem[] {
+  return readDeletedSync().sort((a, b) => b.date.localeCompare(a.date))
+}
+
+function readDeletedSync(): RecordItem[] {
+  const raw = Taro.getStorageSync('daily_records')
+  const list: RecordItem[] = raw ? JSON.parse(raw) : []
+  return list.filter((r) => (r.deleted || 0) > 0)
+}
+
+// v0.6.8 从回收站恢复：deleted 归零 + reviveCount+1（作为"撤销凭条"配额，防旧删除凭证回灌），
+// 再静默同步一次，恢复动作会跟到其它端（桌面回收站同步后也会跟着恢复）
+export async function restoreRecord(id: string): Promise<void> {
+  const list = await getAllRecords()
+  const rec = list.find((r) => String(r.id) === String(id))
+  if (!rec || !(rec.deleted || 0)) return
+  rec.deleted = 0
+  rec.reviveCount = (rec.reviveCount || 0) + 1
+  list.sort((a, b) => b.date.localeCompare(a.date))
+  saveLocalRecords(list)
+  try {
+    await syncNow() // 把撤销凭条同步上云（失败不阻塞，下次同步会补传）
+  } catch { /* ignore */ }
+}
+
 // 编辑 = 旧记录打删除凭证 + 新增一笔（两个动作都参与同步，金额/日期/备注/分类修改都能跨端生效）
 export async function updateRecord(id: string, data: Partial<RecordItem>): Promise<void> {
   const list = await getAllRecords()
