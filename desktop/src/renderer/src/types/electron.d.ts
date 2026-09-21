@@ -22,6 +22,7 @@ interface RecordItem {
   created_at: string
   updated_at: string
   deleted?: number      // v0.6.6 软删除：1 = 已删（数据留底）；页面查询默认已过滤
+  revive_count?: number // v0.6.7 被恢复次数（同步配对用）
 }
 
 interface MonthlyStat {
@@ -81,9 +82,11 @@ interface ElectronAPI {
 
   // 记录
   addRecord: (data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string }) => Promise<{ id: number }>
-  getRecordList: (filters?: { page?: number; pageSize?: number; month?: string; category_key?: string; type?: string; keyword?: string; includeDeleted?: boolean }) => Promise<RecordListResult>
+  getRecordList: (filters?: { page?: number; pageSize?: number; month?: string; category_key?: string; type?: string; keyword?: string; includeDeleted?: boolean; onlyDeleted?: boolean }) => Promise<RecordListResult>
   deleteRecord: (id: number) => Promise<{ success: boolean }>
   markRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ marked: number }>
+  restoreRecord: (id: number) => Promise<{ restored: number }>
+  restoreRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ restored: number }>
   updateRecord: (id: number, data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string }) => Promise<{ success: boolean }>
 
   // 统计

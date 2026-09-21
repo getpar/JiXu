@@ -15,6 +15,7 @@ export interface RecordItem {
   note: string
   date: string
   deleted?: number      // v0.6.6 软删除：1 = 已删（页面不显示，数据留底可恢复）；undefined/0 = 正常
+  reviveCount?: number  // v0.6.7 被恢复过的次数（同步用：历史删除凭证配额 = 已删 + 恢复次数）
 }
 
 // ========== 云同步（本地为主 + 云端双向增量同步） ==========
@@ -33,6 +34,7 @@ export async function syncNow(): Promise<SyncResult> {
     getLocal: getAllRecords,
     addLocal: mergeLocalRecords,
     markLocal: markLocalDeleted,
+    markAlive: markLocalAlive,
     store: taroStore,
   })
 }
@@ -70,6 +72,24 @@ async function markLocalDeleted(key: string, count: number): Promise<number> {
   }
   if (marked > 0) saveLocalRecords(list)
   return marked
+}
+
+/** v0.6.7 按去重键把 count 笔本地已删记录复活（引擎拉到云端撤销凭条时调用；reviveCount+1 防凭证回灌） */
+async function markLocalAlive(key: string, count: number): Promise<number> {
+  const parts = parseRecordKey(key)
+  if (!parts) return 0
+  const list = await getAllRecords()
+  let revived = 0
+  for (const r of list) {
+    if (revived >= count) break
+    if (r.deleted && recordKey(r) === key) {
+      r.deleted = 0
+      r.reviveCount = (r.reviveCount || 0) + 1
+      revived++
+    }
+  }
+  if (revived > 0) saveLocalRecords(list)
+  return revived
 }
 
 // ========== 记录 CRUD ==========

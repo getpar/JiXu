@@ -16,6 +16,9 @@
  *   ⑨ 桌面删一笔 → 小程序自动跟上标删，数据留底不真删（v0.6.6，方案乙）
  *   ⑩ 小程序改一笔 → 双端终态一致（编辑 = 旧笔凭证 + 新笔记账）
  *   ⑪ 两端各删一笔 → 新设备输入同步码，终态与两家完全一致
+ *   ⑫ 回收站恢复一笔 → 上传撤销凭条，小程序自动跟着恢复（v0.6.7）
+ *   ⑬ 删了又恢复反复横跳 → 凭证/撤销配对收敛，不倒灌不抽风
+ *   ⑭ 删除+恢复混战后的新设备 → 终态与双端完全一致
  */
 const path = require('path')
 const {
@@ -45,15 +48,21 @@ function countBy(arr) {
   return m
 }
 
-// ---- 模拟桌面端（复刻 desktop cloudbase.ts performSync v0.6.6 笔数配对 + 删除凭证算法） ----
+// 凭证/凭条的人话摘要（复刻 cloudCore.docLabel，供断言检查控制台可读性）
+function docLabelOf(r) {
+  return `${r.date} ${r.categoryName || ''}/${r.subcategoryName || ''} ¥${r.amount}${r.note ? ' 备注:' + r.note : ''}`
+}
+
+// ---- 模拟桌面端（复刻 desktop cloudbase.ts performSync v0.6.7 笔数配对 + 删除凭证 + 撤销凭条） ----
 
 function createDesktopDevice(cloud, ownerId) {
   let local = []
   let lastSyncAt = 0
   const isTomb = (d) => d.kind === 'tombstone'
+  const isRev = (d) => d.kind === 'revive'
   const device = {
     /** 模拟用户在桌面端记一笔（写进本地 SQLite） */
-    appAdd(r) { local.push({ ...r, id: local.length + 1, deleted: 0 }) },
+    appAdd(r) { local.push({ ...r, id: local.length + 1, deleted: 0, reviveCount: 0 }) },
     /** 模拟点"删除"：只打标记，不同步（v0.6.6 软删除） */
     appDelete(filterFn) {
       const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
@@ -66,7 +75,15 @@ function createDesktopDevice(cloud, ownerId) {
       const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
       if (!rec) throw new Error('桌面端没找到要改的记录')
       rec.deleted = 1
-      local.push({ ...rec, ...patch, id: local.length + 1, deleted: 0 })
+      local.push({ ...rec, ...patch, id: local.length + 1, deleted: 0, reviveCount: 0 })
+      return rec
+    },
+    /** 模拟回收站"恢复"（v0.6.7：deleted 归 0、reviveCount+1，与 records:restore 一致） */
+    appRestore(filterFn) {
+      const rec = local.find((r) => (r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('桌面端回收站没找到要恢复的记录')
+      rec.deleted = 0
+      rec.reviveCount = (rec.reviveCount || 0) + 1
       return rec
     },
     getLocal: () => local,
@@ -75,13 +92,24 @@ function createDesktopDevice(cloud, ownerId) {
     /** 模拟桌面端点击"同步"按钮 */
     async performSync() {
       const docs = await cloud.listAll(ownerId)
-      const cloudRecs = docs.filter((d) => !isTomb(d))
+      const cloudRecs = docs.filter((d) => !isTomb(d) && !isRev(d))
       const cloudTombs = docs.filter(isTomb)
+      const cloudRevs = docs.filter(isRev)
       const cloudRecCounts = countBy(cloudRecs.map(recordKey))
       const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
+      const cloudReviveCounts = countBy(cloudRevs.map((v) => v.targetKey))
       const localTotals = countBy(local.map(recordKey))            // 存活 + 已删
       const deadList = local.filter((r) => (r.deleted || 0) > 0)
       const localDeadCounts = countBy(deadList.map(recordKey))
+      // 凭证配额：死过 = 一张；每恢复过一次 = 历史再多一张（配额 = D + V）
+      const tombDonors = []
+      const reviveDonors = []
+      for (const r of local) {
+        if ((r.deleted || 0) > 0) tombDonors.push(r)
+        for (let i = 0; i < (r.reviveCount || 0); i++) { tombDonors.push(r); reviveDonors.push(r) }
+      }
+      const tombQuota = countBy(tombDonors.map(recordKey))
+      const localReviveCounts = countBy(reviveDonors.map(recordKey))
       // 1. 补传账单：本地总行数超出云端账单数的部分（已删行也算底数）
       let uploaded = 0
       const pushPerKey = new Map()
@@ -95,16 +123,28 @@ function createDesktopDevice(cloud, ownerId) {
           pushPerKey.set(k, done + 1)
         }
       }
-      // 2. 补传删除凭证：本地已删数超出云端凭证数的部分
+      // 2a. 补传删除凭证：配额(D+V)超出云端凭证数的部分
       const pushTomb = new Map()
-      for (const r of deadList) {
+      for (const r of tombDonors) {
         const k = recordKey(r)
-        const need = (localDeadCounts.get(k) || 0) - (cloudTombCounts.get(k) || 0)
+        const need = (tombQuota.get(k) || 0) - (cloudTombCounts.get(k) || 0)
         const done = pushTomb.get(k) || 0
         if (need > 0 && done < need) {
-          await cloud.add({ kind: 'tombstone', targetKey: k, ownerId, updatedAt: now(), source: 'desktop' })
+          await cloud.add({ kind: 'tombstone', targetKey: k, ownerId, updatedAt: now(), source: 'desktop', label: docLabelOf(r) })
           uploaded++
           pushTomb.set(k, done + 1)
+        }
+      }
+      // 2b. 补传撤销凭条：本地恢复数超出云端撤销数的部分
+      const pushRev = new Map()
+      for (const r of reviveDonors) {
+        const k = recordKey(r)
+        const need = (localReviveCounts.get(k) || 0) - (cloudReviveCounts.get(k) || 0)
+        const done = pushRev.get(k) || 0
+        if (need > 0 && done < need) {
+          await cloud.add({ kind: 'revive', targetKey: k, ownerId, updatedAt: now(), source: 'desktop', label: docLabelOf(r) })
+          uploaded++
+          pushRev.set(k, done + 1)
         }
       }
       // 3. 补拉账单：首同步全量，之后按 updatedAt 增量；差额驱动防重复
@@ -119,23 +159,40 @@ function createDesktopDevice(cloud, ownerId) {
         const taken = takenPerKey.get(k) || 0
         if (cap > 0 && taken < cap) {
           takenPerKey.set(k, taken + 1)
-          local.push(cloudToLocal(r))
+          local.push({ ...cloudToLocal(r), deleted: 0, reviveCount: 0 })
           downloaded++
         }
       }
-      // 4. 凭证补标删：云端凭证数超出本地已删数的差额，把存活那份标掉（不设窗口，必收敛）
+      // 4. 按净额跟随标删/恢复：净删除 = max(T - R, 0)，不设窗口，必收敛；本轮刚传的凭证/撤销也计入净额
       let marked = 0
-      cloudTombCounts.forEach((tombCount, k) => {
-        const need = tombCount - (localDeadCounts.get(k) || 0)
-        if (need <= 0) return
-        let done = 0
-        for (const r of local) {
-          if (done >= need) break
-          if (!(r.deleted > 0) && recordKey(r) === k) { r.deleted = 1; done++; marked++ }
+      let revived = 0
+      const netDel = new Map()
+      cloudTombCounts.forEach((n, k) => netDel.set(k, n))
+      pushTomb.forEach((n, k) => netDel.set(k, (netDel.get(k) || 0) + n))
+      cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+      pushRev.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+      netDel.forEach((cnt, k) => {
+        const d = localDeadCounts.get(k) || 0
+        if (cnt > d) {
+          let done = 0
+          for (const r of local) {
+            if (done >= cnt - d) break
+            if (!(r.deleted > 0) && recordKey(r) === k) { r.deleted = 1; done++; marked++ }
+          }
+        } else if (cnt < d) {
+          // 优先恢复 reviveCount 少的行（对齐 records:restoreByFingerprint 的 ORDER BY）
+          const need = d - cnt
+          const cands = local.filter((r) => (r.deleted > 0) && recordKey(r) === k)
+            .sort((a, b) => (a.reviveCount || 0) - (b.reviveCount || 0))
+          for (let i = 0; i < need && i < cands.length; i++) {
+            cands[i].deleted = 0
+            cands[i].reviveCount = (cands[i].reviveCount || 0) + 1
+            revived++
+          }
         }
       })
       lastSyncAt = now()
-      return { uploaded, downloaded, marked }
+      return { uploaded, downloaded, marked, revived }
     },
   }
   return device
@@ -164,13 +221,26 @@ function createMiniappDevice(cloud, ownerId) {
     }
     return done
   }
+  /** 模拟 storage.ts markLocalAlive（v0.6.7）：按去重键把已删记录复活，reviveCount+1 */
+  async function markLocalAlive(key, count) {
+    let done = 0
+    for (const r of local) {
+      if (done >= count) break
+      if ((r.deleted > 0) && recordKey(r) === key) {
+        r.deleted = 0
+        r.reviveCount = (r.reviveCount || 0) + 1
+        done++
+      }
+    }
+    return done
+  }
   function sync() {
-    return runSync({ cloud, source: 'miniapp', ownerId, getLocal: async () => local, addLocal, markLocal, store, now })
+    return runSync({ cloud, source: 'miniapp', ownerId, getLocal: async () => local, addLocal, markLocal, markAlive: markLocalAlive, store, now })
   }
   return {
     /** 模拟 storage.ts addRecord：写本地 + 立即触发一次同步（由引擎按笔数上云），返回同步结果 */
     async appAdd(r) {
-      local.unshift({ ...r, id: String(now()), deleted: 0 })
+      local.unshift({ ...r, id: String(now()), deleted: 0, reviveCount: 0 })
       return sync()
     },
     /** 模拟 storage.ts deleteRecord：标删 + 立即同步（凭证随同步上云） */
@@ -185,7 +255,15 @@ function createMiniappDevice(cloud, ownerId) {
       const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
       if (!rec) throw new Error('小程序没找到要改的记录')
       rec.deleted = 1
-      local.unshift({ ...rec, ...patch, id: String(now()), deleted: 0 })
+      local.unshift({ ...rec, ...patch, id: String(now()), deleted: 0, reviveCount: 0 })
+      return sync()
+    },
+    /** 模拟回收站恢复（v0.6.7）：复活 + 上送撤销凭条 */
+    async appRestore(filterFn) {
+      const rec = local.find((r) => (r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('小程序没找到要恢复的记录')
+      rec.deleted = 0
+      rec.reviveCount = (rec.reviveCount || 0) + 1
       return sync()
     },
     getLocal: () => local,
@@ -330,6 +408,57 @@ async function main() {
     '4 笔被删的（公交/旧拿铁/加班餐/一笔 888）在新设备上也已标删')
   assert(freshDesktop.visible().some((r) => r.amount === 28) && freshDesktop.visible().some((r) => r.amount === 2400),
     '改后的 ¥28 与房租 ¥2400 完好可见')
+
+  console.log('\n【场景⑫】桌面回收站恢复公交 ¥2 → 上传撤销凭条 → 小程序自动跟着恢复（v0.6.7）')
+  desktop.appRestore((r) => r.amount === 2)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 1 && dr.marked === 0 && dr.revived === 0, `桌面只传 1 条撤销凭条，凭证不回灌（uploaded=${dr.uploaded}）`)
+  assert(desktop.visible().some((r) => r.amount === 2), '桌面恢复后公交 ¥2 重新可见')
+  mr = await miniapp.sync()
+  assert(mr.ok && mr.pushed === 0 && mr.pulled === 1, `小程序拉到凭条恢复 1 笔（pushed=${mr.pushed}, pulled=${mr.pulled}）`)
+  assert(miniapp.visible().some((r) => r.amount === 2), '小程序端公交 ¥2 也恢复显示')
+  const cloudDocs = await cloud.listAll(HOUSE_A)
+  const revDoc = cloudDocs.find((d) => d.kind === 'revive')
+  assert(!!revDoc, '云端存在 revive 撤销凭条')
+  assert(!!revDoc && revDoc.label && revDoc.label.includes('¥2'), `凭条带人话摘要：${revDoc && revDoc.label}`)
+  assert(cloudDocs.some((d) => d.kind === 'tombstone' && d.label && d.label.includes('¥2')), '删除凭证同样带可读 label（控制台能看懂删的是哪笔）')
+
+  console.log('\n【场景⑬】咖啡 ¥18（9月21日）删→恢复→再删→再恢复 → 配对收敛不抽风')
+  const c21 = (r) => r.amount === 18 && r.date === '2026-09-21'
+  mr = await miniapp.appDelete(c21)
+  assert(mr.pushed === 1 && mr.pulled === 0, `小程序删 → 推 1 凭证（pushed=${mr.pushed}）`)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 0 && dr.marked === 1, `桌面跟随标删（marked=${dr.marked}）`)
+  desktop.appRestore(c21)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 1 && dr.marked === 0 && dr.revived === 0, `桌面先恢复 → 传 1 撤销凭条（uploaded=${dr.uploaded}）`)
+  mr = await miniapp.sync()
+  assert(mr.pulled === 1 && mr.pushed === 0, `小程序跟随恢复（pulled=${mr.pulled}）`)
+  assert(miniapp.visible().some(c21) && desktop.visible().some(c21), '双端这笔咖啡又都可见了')
+  mr = await miniapp.appDelete(c21)
+  assert(mr.pushed === 1, `第二次删 → 再补 1 凭证（pushed=${mr.pushed}）`)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 0 && dr.marked === 1, `桌面第二次跟随标删（marked=${dr.marked}）`)
+  mr = await miniapp.appRestore(c21)
+  assert(mr.pushed === 1, `第二次恢复 → 再补 1 撤销（pushed=${mr.pushed}）`)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 0 && dr.marked === 0 && dr.revived === 1, `桌面再次跟随恢复，全程无重复文档（revived=${dr.revived}）`)
+  dr = await desktop.performSync()
+  mr = await miniapp.sync()
+  assert(dr.uploaded === 0 && dr.marked === 0 && dr.revived === 0 && mr.pushed === 0 && mr.pulled === 0,
+    '收敛：横跳之后再同步 0 进 0 出')
+
+  console.log('\n【场景⑭】删/改/恢复全部混战过之后：新设备输入同步码 → 三端终态完全一致')
+  const freshMini = createMiniappDevice(cloud, HOUSE_A)
+  mr = await freshMini.sync()
+  assert(mr.ok, '新设备首次同步成功')
+  const visCount = desktop.visible().length
+  assert(visCount === miniapp.visible().length && visCount === freshMini.visible().length,
+    `三端可见数一致（${visCount}/${miniapp.visible().length}/${freshMini.visible().length}）`)
+  assert(freshMini.visible().length === 7, `新设备显示 7 笔（10 账单 - 3 净删除，visible=${freshMini.visible().length}）`)
+  assert(freshMini.visible().some((r) => r.amount === 2) && freshMini.visible().some(c21),
+    '被恢复过的公交 ¥2 和咖啡 ¥18 在新设备上也存活')
+  assert(!freshMini.visible().some((r) => r.amount === 25 && r.date === '2026-09-20'), '被删未恢复的加班餐 ¥25 在新设备上也不显示')
 
   // ---- 汇总 ----
 

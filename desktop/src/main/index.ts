@@ -58,15 +58,21 @@ async function initDatabase(): Promise<void> {
       record_date TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      deleted INTEGER NOT NULL DEFAULT 0
+      deleted INTEGER NOT NULL DEFAULT 0,
+      revive_count INTEGER NOT NULL DEFAULT 0
     )
   `)
 
-  // 老库兼容：缺 deleted 列时自动补列（用户无需删库重装）
+  // 老库兼容：缺列时自动补列（用户无需删库重装）
   const recCols = db.exec("PRAGMA table_info(records)")
-  const hasDeletedCol = (recCols[0]?.values || []).some((v) => v[1] === 'deleted')
-  if (!hasDeletedCol) {
+  const colNames = new Set((recCols[0]?.values || []).map((v) => v[1]))
+  if (!colNames.has('deleted')) {
     db.run('ALTER TABLE records ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+    saveDatabase()
+  }
+  // v0.6.7：被恢复次数（同步配对：历史删除凭证数 = 已删行 + 累计恢复次数）
+  if (!colNames.has('revive_count')) {
+    db.run('ALTER TABLE records ADD COLUMN revive_count INTEGER NOT NULL DEFAULT 0')
     saveDatabase()
   }
 
@@ -302,9 +308,10 @@ function setupIPC(): void {
     page?: number; pageSize?: number; month?: string
     category_key?: string; type?: string; keyword?: string
     includeDeleted?: boolean   // v0.6.6：同步引擎需要含已删除行的全量底数；页面默认不传 = 只看正常记录
+    onlyDeleted?: boolean      // v0.6.7 回收站：只看已删除的记录
   }) => {
-    const { page = 1, pageSize = 20, month, category_key, type, keyword, includeDeleted } = filters || {}
-    let where = includeDeleted ? 'WHERE 1=1' : 'WHERE r.deleted = 0'
+    const { page = 1, pageSize = 20, month, category_key, type, keyword, includeDeleted, onlyDeleted } = filters || {}
+    let where = onlyDeleted ? 'WHERE r.deleted = 1' : includeDeleted ? 'WHERE 1=1' : 'WHERE r.deleted = 0'
     const params: any[] = []
 
     if (month) {
@@ -386,6 +393,33 @@ function setupIPC(): void {
     const marked = changed[0]?.values[0]?.[0] || 0
     if (marked) saveDatabase()
     return { marked }
+  })
+
+  // v0.6.7 回收站恢复（按行 id）：复活那一笔并累计恢复次数（恢复动作同步时上云"撤销凭条"，防凭证回灌）
+  ipcMain.handle('records:restore', (_event, id: number) => {
+    db!.run("UPDATE records SET deleted = 0, revive_count = revive_count + 1, updated_at = datetime('now','localtime') WHERE id = ? AND deleted = 1", [id])
+    const changed = db!.exec('SELECT changes()')
+    const restored = changed[0]?.values[0]?.[0] || 0
+    if (restored) saveDatabase()
+    return { restored }
+  })
+
+  // v0.6.7 同步引擎拉到云端"撤销凭条"后，按指纹把本地已删记录恢复存活（优先恢复恢复次数少的行）
+  ipcMain.handle('records:restoreByFingerprint', (_event, parts: {
+    date: string; amount: number; subcategoryKey: string; type: string
+  }, count: number) => {
+    db!.run(
+      `UPDATE records SET deleted = 0, revive_count = revive_count + 1 WHERE id IN (
+         SELECT id FROM records
+         WHERE deleted = 1 AND record_date = ? AND amount = ? AND subcategory_key = ? AND type = ?
+         ORDER BY revive_count ASC LIMIT ?
+       )`,
+      [parts.date, parts.amount, parts.subcategoryKey, parts.type, count]
+    )
+    const changed = db!.exec('SELECT changes()')
+    const restored = changed[0]?.values[0]?.[0] || 0
+    if (restored) saveDatabase()
+    return { restored }
   })
 
   // ---- 统计 ----（v0.6.6：全部只统计未删除记录）

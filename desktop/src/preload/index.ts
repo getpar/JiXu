@@ -11,13 +11,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 流水记录
   addRecord: (data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string }) =>
     ipcRenderer.invoke('records:add', data),
-  getRecordList: (filters?: { page?: number; pageSize?: number; month?: string; category_key?: string; type?: string; keyword?: string; includeDeleted?: boolean }) =>
+  getRecordList: (filters?: { page?: number; pageSize?: number; month?: string; category_key?: string; type?: string; keyword?: string; includeDeleted?: boolean; onlyDeleted?: boolean }) =>
     ipcRenderer.invoke('records:getList', filters),
   deleteRecord: (id: number) => ipcRenderer.invoke('records:delete', id),
   updateRecord: (id: number, data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string }) =>
     ipcRenderer.invoke('records:update', id, data),
   markRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) =>
     ipcRenderer.invoke('records:markByFingerprint', parts, count),
+  restoreRecord: (id: number) => ipcRenderer.invoke('records:restore', id),
+  restoreRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) =>
+    ipcRenderer.invoke('records:restoreByFingerprint', parts, count),
 
   // 统计
   getMonthlyStats: (month: string, type?: string) => ipcRenderer.invoke('stats:getMonthlyStats', month, type),

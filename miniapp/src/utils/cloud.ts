@@ -19,7 +19,7 @@
 
 import Taro from '@tarojs/taro'
 import {
-  CloudCollection, CloudRecord, createMockCloud, KVStore,
+  CloudCollection, CloudDoc, NewCloudDoc, createMockCloud, KVStore,
   newOwnerId, normalizeOwnerId, isValidOwnerId, lastSyncKey,
 } from './cloudCore'
 
@@ -97,14 +97,14 @@ function createWxCloudCollection(): CloudCollection | null {
     const db = wx.cloud.database()
     const col = db.collection('records')
     return {
-      async listAll(ownerId: string): Promise<CloudRecord[]> {
-        // 只拉本户（同同步码）的记录；小程序端单次最多取 100 条，循环分页拉全
-        const all: CloudRecord[] = []
+      async listAll(ownerId: string): Promise<CloudDoc[]> {
+        // 只拉本户（同同步码）的文档（账单+删除凭证+撤销凭条混合）；小程序端单次最多取 100 条，循环分页拉全
+        const all: CloudDoc[] = []
         let offset = 0
         const limit = 100
         while (true) {
           const res = await col.where({ ownerId }).orderBy('updatedAt', 'asc').skip(offset).limit(limit).get()
-          const rows = (res.data || []) as CloudRecord[]
+          const rows = (res.data || []) as CloudDoc[]
           if (rows.length === 0) break
           all.push(...rows)
           if (rows.length < limit) break
@@ -112,7 +112,7 @@ function createWxCloudCollection(): CloudCollection | null {
         }
         return all
       },
-      async add(record: Omit<CloudRecord, '_id'>): Promise<string | null> {
+      async add(record: NewCloudDoc): Promise<string | null> {
         const res = await col.add({ data: record as any })
         return res._id || null
       },

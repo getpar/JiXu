@@ -4,7 +4,7 @@ import { Layout, Menu, Typography, Button, Switch, message, Modal, Input, Space,
 import {
   HomeOutlined, PlusCircleOutlined, UnorderedListOutlined, BarChartOutlined,
   TagsOutlined, SyncOutlined, SunOutlined, MoonOutlined,
-  DownloadOutlined, UploadOutlined, ThunderboltOutlined, CloudOutlined, CheckSquareOutlined, CopyOutlined,
+  DownloadOutlined, UploadOutlined, ThunderboltOutlined, CloudOutlined, CheckSquareOutlined, CopyOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import {
   initCloud, isConnected, getEnvId, performSync, disconnect, CloudRecord,
@@ -25,6 +25,7 @@ const menuItems = [
   { key: '/categories', icon: <TagsOutlined />, label: '分类管理' },
   { key: '/recurring', icon: <SyncOutlined />, label: '周期账单' },
   { key: '/todos', icon: <CheckSquareOutlined />, label: '待办事项' },
+  { key: '/recycle-bin', icon: <DeleteOutlined />, label: '回收站' },
 ]
 
 function AppLayout(): JSX.Element {
@@ -167,10 +168,11 @@ function AppLayout(): JSX.Element {
         note: r.note || '',
         date: r.record_date || '',
         deleted: r.deleted ? 1 : 0,
+        reviveCount: r.revive_count || 0,
       }))
 
       // 2. 执行同步
-      const { result, newCloudRecords, toMark } = await performSync(localRecords)
+      const { result, newCloudRecords, toMark, toAlive } = await performSync(localRecords)
 
       if (result.success) {
         // 3. 将云端新记录写入本地 SQLite
@@ -190,7 +192,7 @@ function AppLayout(): JSX.Element {
           } catch { /* skip duplicates */ }
         }
 
-        // 4. 按云端"删除凭证"软删本地记录（数据留底，页面不再显示；其它设备删的，本端跟上）
+        // 4. 按云端"删除凭证"软删本地记录；按"撤销凭条"恢复（v0.6.7 回收站恢复跨端生效）
         let marked = 0
         for (const m of toMark) {
           try {
@@ -198,14 +200,22 @@ function AppLayout(): JSX.Element {
             marked += res?.marked || 0
           } catch { /* skip */ }
         }
+        let revived = 0
+        for (const a of toAlive) {
+          try {
+            const res = await window.electronAPI.restoreRecordByFingerprint(a.parts, a.count)
+            revived += res?.restored || 0
+          } catch { /* skip */ }
+        }
 
-        if (result.uploaded === 0 && imported === 0 && marked === 0) {
+        if (result.uploaded === 0 && imported === 0 && marked === 0 && revived === 0) {
           message.success('数据已是最新，无需同步')
         } else {
           const parts: string[] = []
           if (result.uploaded > 0) parts.push(`上传 ${result.uploaded} 条`)
           if (imported > 0) parts.push(`下载 ${imported} 条`)
           if (marked > 0) parts.push(`按云端凭证删除 ${marked} 条`)
+          if (revived > 0) parts.push(`按云端凭条恢复 ${revived} 条`)
           message.success(`同步完成：${parts.join('，')}`)
         }
       } else {

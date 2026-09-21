@@ -116,13 +116,37 @@ export interface CloudTombstone {
   ownerId: string
   updatedAt: number
   source?: string
+  label?: string        // v0.6.7 人话摘要，仅供控制台阅读
 }
 
-export type CloudDoc = CloudRecord | CloudTombstone
-export type NewCloudDoc = Omit<CloudRecord, '_id'> | Omit<CloudTombstone, '_id'>
+/** 撤销凭条（v0.6.7 恢复）：抵消一条删除凭证，让回收站恢复也能跨端生效 */
+export interface CloudRevive {
+  _id?: string
+  kind: 'revive'
+  targetKey: string
+  ownerId: string
+  updatedAt: number
+  source?: string
+  label?: string
+}
+
+export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive
+export type NewCloudDoc =
+  | Omit<CloudRecord, '_id'>
+  | Omit<CloudTombstone, '_id'>
+  | Omit<CloudRevive, '_id'>
 
 export function isTombstone(d: CloudDoc): d is CloudTombstone {
   return (d as CloudTombstone).kind === 'tombstone'
+}
+
+export function isRevive(d: CloudDoc): d is CloudRevive {
+  return (d as CloudRevive).kind === 'revive'
+}
+
+/** 凭证/凭条的人话摘要（与小程序 cloudCore.docLabel 格式一致） */
+function docLabel(r: { date: string; categoryName?: string; categoryKey?: string; subcategoryName?: string; subcategoryKey?: string; amount: number; note?: string }): string {
+  return `${r.date} ${r.categoryName || r.categoryKey || ''}/${r.subcategoryName || r.subcategoryKey || ''} ¥${r.amount}${r.note ? ' 备注:' + r.note : ''}`
 }
 
 /** 上传单条文档（账单或删除凭证；失败时把真实错误带回去，不再静默吞掉） */
@@ -255,51 +279,73 @@ function parseKey(key: string): MarkRequest['parts'] | null {
 }
 
 /**
- * 执行完整双向同步（v0.6.6：笔数配对 + 软删除凭证，与小程序端 runSync 算法对齐）。
- * 不变式：每键本地总行数(存活+已删) ↔ 云端账单数；本地已删数 ↔ 云端凭证数。
- * 返回 newCloudRecords = 需新增入库的账单；toMark = 需按凭证软删除的本地记录
+ * 执行完整双向同步（v0.6.7：笔数配对 + 删除凭证 + 撤销凭条，与小程序端 runSync 算法对齐）。
+ * 不变式：每键本地总行数 ↔ 云端账单数；本地(已删+累计恢复) ↔ 云端凭证数；本地累计恢复 ↔ 云端撤销数。
+ * 返回 newCloudRecords = 需新增入库的账单；toMark = 按凭证软删；toAlive = 按撤销凭条恢复
  */
 export async function performSync(
   localRecords: {
     type: string; amount: number; categoryKey: string; categoryName: string
     subcategoryKey: string; subcategoryName: string; note: string; date: string
-    deleted?: number
+    deleted?: number; reviveCount?: number
   }[],
-): Promise<{ result: SyncResult; newCloudRecords: CloudRecord[]; toMark: MarkRequest[] }> {
-  if (!db) return { result: { success: false, uploaded: 0, downloaded: 0, error: '未连接云端' }, newCloudRecords: [], toMark: [] }
+): Promise<{ result: SyncResult; newCloudRecords: CloudRecord[]; toMark: MarkRequest[]; toAlive: MarkRequest[] }> {
+  if (!db) return { result: { success: false, uploaded: 0, downloaded: 0, error: '未连接云端' }, newCloudRecords: [], toMark: [], toAlive: [] }
 
   try {
     const docs = await downloadAllRecords()
-    const cloudRecs = docs.filter((d) => !isTombstone(d)) as CloudRecord[]
+    const cloudRecs = docs.filter((d) => !isTombstone(d) && !isRevive(d)) as CloudRecord[]
     const cloudTombs = docs.filter((d) => isTombstone(d)) as CloudTombstone[]
+    const cloudRevs = docs.filter((d) => isRevive(d)) as CloudRevive[]
     const cloudRecCounts = countBy(cloudRecs.map(recordKeyOf))
     const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
+    const cloudReviveCounts = countBy(cloudRevs.map((v) => v.targetKey))
     const localTotals = countBy(localRecords.map(recordKeyOf))            // 存活 + 已删
+    // 凭证配额：死过一行 = 一张；每被恢复过一次 = 历史再多一张（配额 = D + V）
+    const tombDonors: typeof localRecords = []
+    const reviveDonors: typeof localRecords = []
+    for (const r of localRecords) {
+      if ((r.deleted || 0) > 0) tombDonors.push(r)
+      for (let i = 0; i < (r.reviveCount || 0); i++) { tombDonors.push(r); reviveDonors.push(r) }
+    }
     const deadList = localRecords.filter((r) => (r.deleted || 0) > 0)
     const localDeadCounts = countBy(deadList.map(recordKeyOf))
+    const tombQuota = countBy(tombDonors.map(recordKeyOf))
+    const localReviveCounts = countBy(reviveDonors.map(recordKeyOf))
 
     const toUpload: NewCloudDoc[] = []
-    // 1. 补传账单：本键本地总行数超出云端账单数的部分（deleted 字段不上云，云端只存原始内容）
+    // 1. 补传账单：本键本地总行数超出云端账单数的部分（deleted/reviveCount 不上云，云端只存原始内容）
     const pushPerKey = new Map<string, number>()
     for (const r of localRecords) {
       const k = recordKeyOf(r)
       const need = (localTotals.get(k) || 0) - (cloudRecCounts.get(k) || 0)
       const done = pushPerKey.get(k) || 0
       if (need > 0 && done < need) {
-        const { deleted: _dl, ...doc } = r
+        const { deleted: _dl, reviveCount: _rv, ...doc } = r
         toUpload.push({ ...doc, updatedAt: Date.now() })
         pushPerKey.set(k, done + 1)
       }
     }
-    // 2. 补传删除凭证：本键已删数超出云端凭证数的部分
+    // 2a. 补传删除凭证：配额(D+V)超出云端凭证数的部分；label 供人在控制台看懂删的是哪笔
     const pushTombPerKey = new Map<string, number>()
-    for (const r of deadList) {
+    for (const r of tombDonors) {
       const k = recordKeyOf(r)
-      const need = (localDeadCounts.get(k) || 0) - (cloudTombCounts.get(k) || 0)
+      const need = (tombQuota.get(k) || 0) - (cloudTombCounts.get(k) || 0)
       const done = pushTombPerKey.get(k) || 0
       if (need > 0 && done < need) {
-        toUpload.push({ kind: 'tombstone', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop' })
+        toUpload.push({ kind: 'tombstone', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: docLabel(r) })
         pushTombPerKey.set(k, done + 1)
+      }
+    }
+    // 2b. 补传撤销凭条：本地恢复数超出云端撤销数的部分（恢复也跨端生效）
+    const pushRevPerKey = new Map<string, number>()
+    for (const r of reviveDonors) {
+      const k = recordKeyOf(r)
+      const need = (localReviveCounts.get(k) || 0) - (cloudReviveCounts.get(k) || 0)
+      const done = pushRevPerKey.get(k) || 0
+      if (need > 0 && done < need) {
+        toUpload.push({ kind: 'revive', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: docLabel(r) })
+        pushRevPerKey.set(k, done + 1)
       }
     }
     let uploaded = 0
@@ -308,14 +354,14 @@ export async function performSync(
       uploaded = up.uploaded
       // 该传却一条都没传上去 = 写入通道断了，必须把真实错误抱出来，不能再冒充"已最新"
       if (up.uploaded === 0) {
-        return { result: { success: false, uploaded: 0, downloaded: 0, error: `云端写入失败（${up.failed} 条未传）：${up.firstError || '未知原因'} — 请检查 records 集合是否存在、权限是否允许创建、匿名登录是否开启` }, newCloudRecords: [], toMark: [] }
+        return { result: { success: false, uploaded: 0, downloaded: 0, error: `云端写入失败（${up.failed} 条未传）：${up.firstError || '未知原因'} — 请检查 records 集合是否存在、权限是否允许创建、匿名登录是否开启` }, newCloudRecords: [], toMark: [], toAlive: [] }
       }
     }
 
     // 3. 补拉账单：云端账单数超出本地总行数的差额，限上次同步后写入的（刚自己传的因差额为 0 不倒灌）
     const meta = await getSyncMeta()
     const rawDocs = meta ? await downloadSince(meta.lastSyncAt) : docs
-    const rawRecs = rawDocs.filter((d) => !isTombstone(d)) as CloudRecord[]
+    const rawRecs = rawDocs.filter((d) => !isTombstone(d) && !isRevive(d)) as CloudRecord[]
     const takenPerKey = new Map<string, number>()
     const newCloudRecords: CloudRecord[] = []
     for (const r of rawRecs) {
@@ -328,12 +374,21 @@ export async function performSync(
       }
     }
 
-    // 4. 凭证补标删：云端凭证数超出本地已删数的差额（不设窗口，收敛）
+    // 4. 按净额跟随标删/恢复：净删除数 = max(凭证数 - 撤销数, 0)，和本地已删数比差额（不设窗口，必收敛）。
+    //    本轮刚补传的凭证/撤销也要计入净额，否则刚恢复的行会被旧凭证快照当场再标删（回灌）
     const toMark: MarkRequest[] = []
-    cloudTombCounts.forEach((tombCount, k) => {
-      const need = tombCount - (localDeadCounts.get(k) || 0)
+    const toAlive: MarkRequest[] = []
+    const netDel = new Map<string, number>()
+    cloudTombCounts.forEach((n, k) => netDel.set(k, n))
+    pushTombPerKey.forEach((n, k) => netDel.set(k, (netDel.get(k) || 0) + n))
+    cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+    pushRevPerKey.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+    netDel.forEach((cnt, k) => {
+      const d = localDeadCounts.get(k) || 0
       const parts = parseKey(k)
-      if (need > 0 && parts) toMark.push({ parts, count: need })
+      if (!parts) return
+      if (cnt > d) toMark.push({ parts, count: cnt - d })
+      else if (cnt < d) toAlive.push({ parts, count: d - cnt })
     })
 
     // 5. 更新同步时间
@@ -343,9 +398,10 @@ export async function performSync(
       result: { success: true, uploaded, downloaded: newCloudRecords.length },
       newCloudRecords,
       toMark,
+      toAlive,
     }
   } catch (e: any) {
-    return { result: { success: false, uploaded: 0, downloaded: 0, error: e.message }, newCloudRecords: [], toMark: [] }
+    return { result: { success: false, uploaded: 0, downloaded: 0, error: e.message }, newCloudRecords: [], toMark: [], toAlive: [] }
   }
 }
 

@@ -12,6 +12,10 @@
  * - 软删除（v0.6.6）：删除 = 本地标记 deleted=1（数据留底可恢复），同步时向云端
  *   新增一条"删除凭证"文档；另一端拉到凭证后把自己那份也标删——只用到"新增"操作，
  *   无需修改/删除云端文档，因此集合权限保持最严、也不需要云函数
+ * - 恢复（v0.6.7）：回收站恢复 = 本地行复活（deleted 归 0、reviveCount+1），同步时
+ *   向云端新增"撤销凭条"(revive) 文档抵消一条删除凭证；另一端按净额 T-R 跟随标删或复活。
+ *   配对不变式：每键 云端删除凭证数 T = 本地已删数 D + 本地累计恢复数 V；云端撤销数 R = V
+ * - 凭证/凭条附 label 人话摘要（v0.6.7）：只供人在控制台阅读，引擎不使用
  * - 编辑 = 旧记录打删除凭证 + 新增一笔，天然继承上述同步能力
  * - 多用户隔离：每条云端文档带 ownerId（同步码），同码才是同一户（方案 B）
  */
@@ -42,13 +46,29 @@ export interface CloudTombstone {
   ownerId: string
   updatedAt: number
   source?: string
+  label?: string        // v0.6.7 被删内容的人话摘要，仅供控制台阅读，引擎不用
 }
 
-/** records 集合里的任意文档：账单记录 or 删除凭证 */
-export type CloudDoc = CloudRecord | CloudTombstone
+/** 撤销凭条（v0.6.7 恢复）：抵消一条删除凭证，让恢复动作也跨端生效；同样只需"新增"权限 */
+export interface CloudRevive {
+  _id?: string
+  kind: 'revive'
+  targetKey: string
+  ownerId: string
+  updatedAt: number
+  source?: string
+  label?: string
+}
+
+/** records 集合里的任意文档：账单记录 / 删除凭证 / 撤销凭条 */
+export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive
 
 export function isTombstone(d: CloudDoc): d is CloudTombstone {
   return (d as CloudTombstone).kind === 'tombstone'
+}
+
+export function isRevive(d: CloudDoc): d is CloudRevive {
+  return (d as CloudRevive).kind === 'revive'
 }
 
 /** 可同步的本地记录（与小程序 RecordItem / 桌面端 records 表字段兼容） */
@@ -63,6 +83,7 @@ export interface SyncableRecord {
   note: string
   date: string
   deleted?: number      // v0.6.6 软删除：0/undefined = 正常，1 = 已删除（仅本地状态，同步靠删除凭证文档）
+  reviveCount?: number  // v0.6.7 本笔被恢复过的次数（仅本地；期望云端凭证数 = 已删数 + 恢复数）
 }
 
 /** 最小键值存储接口：小程序端 = Taro Storage，验证脚本 = 内存对象 */
@@ -71,8 +92,11 @@ export interface KVStore {
   set(key: string, value: string): void
 }
 
-/** 待上传的新文档：账单或删除凭证（不含 _id） */
-export type NewCloudDoc = Omit<CloudRecord, '_id'> | Omit<CloudTombstone, '_id'>
+/** 待上传的新文档：账单 / 删除凭证 / 撤销凭条（不含 _id） */
+export type NewCloudDoc =
+  | Omit<CloudRecord, '_id'>
+  | Omit<CloudTombstone, '_id'>
+  | Omit<CloudRevive, '_id'>
 
 /** 云数据库集合的最小操作面：模拟云 和 wx.cloud 真云 都实现它 */
 export interface CloudCollection {
@@ -158,6 +182,13 @@ export function localToCloud(r: SyncableRecord, source: string, now: number, own
   }
 }
 
+/** 凭证/凭条的人话摘要：云控制台里能看懂这条删/恢复的是哪笔账（引擎不读此字段） */
+export function docLabel(r: SyncableRecord): string {
+  const cat = r.categoryName || r.categoryKey || ''
+  const sub = r.subcategoryName || r.subcategoryKey || ''
+  return `${r.date} ${cat}/${sub} ¥${r.amount}${r.note ? ' 备注:' + r.note : ''}`
+}
+
 // ---- 本地模拟云（开发验证用） ----
 
 /**
@@ -204,6 +235,8 @@ export interface SyncDeps {
   addLocal: (records: SyncableRecord[]) => Promise<number>
   /** 按去重键把 count 笔本地存活记录标记为软删除（持久化），返回实际标记数 */
   markLocal: (key: string, count: number) => Promise<number>
+  /** v0.6.7：按去重键把 count 笔本地已删记录恢复存活（reviveCount+1），返回实际恢复数 */
+  markAlive: (key: string, count: number) => Promise<number>
   /** 存放 lastSyncAt 的键值存储 */
   store: KVStore
   /** 可注入的时钟（便于测试） */
@@ -226,12 +259,12 @@ export function countByRecordKey<T extends KeyPart>(list: T[]): Map<string, numb
 }
 
 /**
- * 执行一次完整双向同步（v0.6.6：笔数配对 + 软删除凭证），不变式：
- *   每键本地总行数(存活+已删) ↔ 云端账单文档数；本地已删数 ↔ 云端凭证数。
- * 1. 本地总行数 > 云端账单数 → 补传差额账单（含"记了从未同步又删掉"的，新设备才能完整还原）
- * 2. 本地已删数 > 云端凭证数 → 补传删除凭证
+ * 执行一次完整双向同步（v0.6.7：笔数配对 + 删除凭证 + 撤销凭条），不变式：
+ *   每键本地总行数(存活+已删) ↔ 云端账单数；本地(已删数+累计恢复数) ↔ 云端凭证数；本地累计恢复数 ↔ 云端撤销数。
+ * 1. 本地总行数 > 云端账单数 → 补传差额账单
+ * 2. 本地凭证应配数(D+V) > 云端凭证数 → 补传删除凭证；本地恢复数 V > 云端撤销数 → 补传撤销凭条
  * 3. 云端账单数 > 本地总行数 → 补拉差额（限上次同步后写入的）
- * 4. 云端凭证数 > 本地已删数 → 把对应键的存活记录标删（不设窗口，差额驱动必收敛）
+ * 4. 云端净删除数 max(T-R,0) > 本地已删数 → 标删差额；反之 → 复活差额（凭证/撤销均不设窗口，差额驱动必收敛）
  */
 export async function runSync(deps: SyncDeps): Promise<SyncResult> {
   const now = deps.now ? deps.now() : Date.now()
@@ -241,17 +274,29 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
   try {
     const docs = await deps.cloud.listAll(deps.ownerId)
     const mine = docs.filter((d) => d.ownerId === deps.ownerId) // 再验一次码，防驱动层漏筛
-    const cloudRecs = mine.filter((d): d is CloudRecord => !isTombstone(d))
+    const cloudRecs = mine.filter((d): d is CloudRecord => !isTombstone(d) && !isRevive(d))
     const cloudTombs = mine.filter((d): d is CloudTombstone => isTombstone(d))
+    const cloudRevs = mine.filter((d): d is CloudRevive => isRevive(d))
 
     const cloudRecCounts = countByRecordKey(cloudRecs)
     const cloudTombCounts = new Map<string, number>()
     for (const t of cloudTombs) cloudTombCounts.set(t.targetKey, (cloudTombCounts.get(t.targetKey) || 0) + 1)
+    const cloudReviveCounts = new Map<string, number>()
+    for (const v of cloudRevs) cloudReviveCounts.set(v.targetKey, (cloudReviveCounts.get(v.targetKey) || 0) + 1)
 
     const localAll = await deps.getLocal()
     const localTotals = countByRecordKey(localAll)                       // 存活 + 已删
     const deadList = localAll.filter((r) => (r.deleted || 0) > 0)
     const localDeadCounts = countByRecordKey(deadList)
+    // 凭证配额：一行死过 = 一张凭证；每被恢复过一次 = 历史再多一张凭证（所以配额 = D + V）
+    const tombDonors: SyncableRecord[] = []
+    const reviveDonors: SyncableRecord[] = []
+    for (const r of localAll) {
+      if ((r.deleted || 0) > 0) tombDonors.push(r)
+      for (let i = 0; i < (r.reviveCount || 0); i++) { tombDonors.push(r); reviveDonors.push(r) }
+    }
+    const tombQuota = countByRecordKey(tombDonors)
+    const localReviveCounts = countByRecordKey(reviveDonors)
 
     let pushed = 0
     // 1. 补传账单：本键总行数超出云端账单数的部分
@@ -265,15 +310,26 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
         if (id) { pushed++; pushPerKey.set(k, done + 1) }
       }
     }
-    // 2. 补传删除凭证：本键已删数超出云端凭证数的部分（凭证内容只含指纹，不含金额明细）
+    // 2a. 补传删除凭证：配额(D+V)超出云端凭证数的部分；label 只供人阅读
     const pushTombPerKey = new Map<string, number>()
-    for (const r of deadList) {
+    for (const r of tombDonors) {
       const k = recordKey(r)
-      const need = (localDeadCounts.get(k) || 0) - (cloudTombCounts.get(k) || 0)
+      const need = (tombQuota.get(k) || 0) - (cloudTombCounts.get(k) || 0)
       const done = pushTombPerKey.get(k) || 0
       if (need > 0 && done < need) {
-        const id = await deps.cloud.add({ kind: 'tombstone', targetKey: k, ownerId: deps.ownerId, updatedAt: now, source: deps.source })
+        const id = await deps.cloud.add({ kind: 'tombstone', targetKey: k, ownerId: deps.ownerId, updatedAt: now, source: deps.source, label: docLabel(r) })
         if (id) { pushed++; pushTombPerKey.set(k, done + 1) }
+      }
+    }
+    // 2b. 补传撤销凭条：本地恢复数 V 超出云端撤销数的部分（恢复也跨端生效）
+    const pushRevPerKey = new Map<string, number>()
+    for (const r of reviveDonors) {
+      const k = recordKey(r)
+      const need = (localReviveCounts.get(k) || 0) - (cloudReviveCounts.get(k) || 0)
+      const done = pushRevPerKey.get(k) || 0
+      if (need > 0 && done < need) {
+        const id = await deps.cloud.add({ kind: 'revive', targetKey: k, ownerId: deps.ownerId, updatedAt: now, source: deps.source, label: docLabel(r) })
+        if (id) { pushed++; pushRevPerKey.set(k, done + 1) }
       }
     }
 
@@ -296,18 +352,25 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
       pulled += await deps.addLocal(incoming.map(cloudToLocal))
     }
 
+    // 4. 按净额跟随标删/复活：净删除数 = max(凭证数 - 撤销数, 0)，和本地已删数比差额（不设窗口，必收敛）。
+    //    本轮刚补传的凭证/撤销也要计入净额，否则刚恢复的行会被旧凭证快照当场再标删（回灌）
+    const netDel = new Map<string, number>()
+    cloudTombCounts.forEach((n, k) => netDel.set(k, n))
+    pushTombPerKey.forEach((n, k) => netDel.set(k, (netDel.get(k) || 0) + n))
+    cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+    pushRevPerKey.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
     const pendingMarks: { k: string; need: number }[] = []
-
-    // 4. 凭证补标删：云端凭证数超出本地已删数，把该键存活记录标掉（不设窗口，差额驱动收敛）
-    cloudTombCounts.forEach((tombCount, k) => {
-      const need = tombCount - (localDeadCounts.get(k) || 0)
-      if (need > 0) {
-        // forEach 回调不能 await，包成同步段后统一处理：收集差额再串行标记
-        pendingMarks.push({ k, need })
-      }
+    const pendingAlives: { k: string; need: number }[] = []
+    netDel.forEach((cnt, k) => {
+      const d = localDeadCounts.get(k) || 0
+      if (cnt > d) pendingMarks.push({ k, need: cnt - d })
+      else if (cnt < d) pendingAlives.push({ k, need: d - cnt })
     })
     for (const m of pendingMarks) {
       pulled += await deps.markLocal(m.k, m.need)
+    }
+    for (const a of pendingAlives) {
+      pulled += await deps.markAlive(a.k, a.need)
     }
 
     // 5. 更新同步时间
