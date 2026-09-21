@@ -1,7 +1,7 @@
 import { View, Text, Picker, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, getDeletedRecords } from '../../utils/storage'
+import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, getDeletedRecords, localDateStr } from '../../utils/storage'
 import * as XLSX from 'xlsx'
 import './index.scss'
 
@@ -111,7 +111,7 @@ export default function History(): JSX.Element {
     XLSX.utils.book_append_sheet(wb, ws, '账单')
     const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
     const fs = Taro.getFileSystemManager()
-    const path = `${Taro.env.USER_DATA_PATH}/每日小记_${new Date().toISOString().slice(0, 10)}.xlsx`
+    const path = `${Taro.env.USER_DATA_PATH}/每日小记_${localDateStr()}.xlsx`
     fs.writeFile({
       filePath: path, data: new Uint8Array(wbout).buffer as any,
       success: () => { Taro.openDocument({ filePath: path, showMenu: true }) },

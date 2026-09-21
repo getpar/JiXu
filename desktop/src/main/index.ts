@@ -534,7 +534,7 @@ function setupIPC(): void {
   ipcMain.handle('backup:create', async () => {
     if (!mainWindow) return { success: false }
     const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: `每日小记_备份_${new Date().toISOString().slice(0, 10)}.db`,
+      defaultPath: `每日小记_备份_${localDateStr()}.db`,
       filters: [{ name: '数据库文件', extensions: ['db'] }],
     })
     if (!result.canceled && result.filePath) {
@@ -607,7 +607,7 @@ function setupIPC(): void {
   ipcMain.handle('recurring:executeNow', (_event, id: number) => {
     const bill = queryOne('SELECT * FROM recurring_bills WHERE id = ?', [id])
     if (!bill) return { success: false, error: '账单不存在' }
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateStr()
     db!.run(
       'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date) VALUES (?, ?, ?, ?, ?, ?)',
       [bill.type, bill.amount, bill.category_key, bill.subcategory_key,
@@ -659,7 +659,7 @@ function setupIPC(): void {
   ipcMain.handle('todos:complete', (_event, id: number) => {
     const todo = queryOne('SELECT * FROM todos WHERE id = ?', [id])
     if (!todo) return { success: false, error: '待办不存在' }
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateStr()
     const done = parseDateArray(todo.completed_dates)
     if (!done.includes(today)) done.push(today)
     let recorded: { amount: number; date: string } | null = null
@@ -706,7 +706,7 @@ function setupIPC(): void {
 // 检查周期性账单到期（启动时 + 运行期定时调用）
 function checkRecurringBills(): void {
   if (!db) return
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const due = queryAll(
     `SELECT r.*, c.category_name, c.subcategory_name
      FROM recurring_bills r
@@ -750,7 +750,12 @@ function getNextDate(current: string, cycle: string): string {
     case 'monthly': d.setMonth(d.getMonth() + 1); break
     case 'yearly': d.setFullYear(d.getFullYear() + 1); break
   }
-  return d.toISOString().slice(0, 10)
+  return localDateStr(d)
+}
+
+/** 本地时区的 YYYY-MM-DD（v0.6.8 修时区 bug：toISOString 是 UTC 日期，凌晨 0~8 点会算成昨天） */
+function localDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // ========== 窗口 ==========

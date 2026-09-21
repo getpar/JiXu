@@ -2,7 +2,7 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo } from 'react'
 import {
-  getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories,
+  getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories, localDateStr,
 } from '../../utils/storage'
 import type { Todo } from '../../utils/storage'
 import './index.scss'
@@ -21,7 +21,7 @@ export default function Todos(): JSX.Element {
   // 表单
   const [fTitle, setFTitle] = useState('')
   const [fCycle, setFCycle] = useState('daily')
-  const [fNextDate, setFNextDate] = useState(new Date().toISOString().slice(0, 10))
+  const [fNextDate, setFNextDate] = useState(localDateStr())
   const [fAmount, setFAmount] = useState('')
   const [fCatKey, setFCatKey] = useState('food')
   const [fSubKey, setFSubKey] = useState('')
@@ -59,7 +59,7 @@ export default function Todos(): JSX.Element {
 
   function resetForm(): void {
     setFTitle(''); setFCycle('daily')
-    setFNextDate(new Date().toISOString().slice(0, 10))
+    setFNextDate(localDateStr())
     setFTime(''); setFAmount(''); setFCatKey('food'); setFSubKey(''); setFNote('')
   }
 
@@ -101,7 +101,7 @@ export default function Todos(): JSX.Element {
   }
 
   // 今天到期的待办
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const dueToday = activeTodos.filter((t) => t.nextDate <= today)
 
   return (

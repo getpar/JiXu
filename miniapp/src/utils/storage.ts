@@ -18,6 +18,12 @@ export interface RecordItem {
   reviveCount?: number  // v0.6.7 被恢复过的次数（同步用：历史删除凭证配额 = 已删 + 恢复次数）
 }
 
+/** 本地时区的 YYYY-MM-DD（v0.6.8 修 iOS/安卓通用时区 bug：
+ * toISOString 是 UTC 日期，中国每天 0~8 点会算成"昨天"，导致记账/周期推算日期错位） */
+export function localDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // ========== 云同步（本地为主 + 云端双向增量同步） ==========
 
 /**
@@ -358,7 +364,7 @@ export async function executeRecurringBill(id: string): Promise<void> {
     subcategoryKey: bill.subcategoryKey,
     subcategoryName: bill.subcategoryName,
     note: bill.note,
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateStr(),
   })
 
   // 2. 计算下一个日期
@@ -369,7 +375,7 @@ export async function executeRecurringBill(id: string): Promise<void> {
     case 'monthly': next.setMonth(next.getMonth() + 1); break
     case 'yearly': next.setFullYear(next.getFullYear() + 1); break
   }
-  bill.nextDate = next.toISOString().slice(0, 10)
+  bill.nextDate = localDateStr(next)
 
   saveRecurringBills(bills)
 }
@@ -409,7 +415,7 @@ export async function addTodo(todo: Omit<Todo, 'id' | 'completedDates' | 'create
     ...todo,
     id: Date.now().toString(),
     completedDates: [],
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: localDateStr(),
   })
   saveTodos(list)
 }
@@ -428,7 +434,7 @@ export async function completeTodo(id: string): Promise<void> {
   const todo = list.find((t) => t.id === id)
   if (!todo) return
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   todo.completedDates.push(today)
 
   // 有关联金额 → 自动创建记账记录
@@ -456,7 +462,7 @@ export async function completeTodo(id: string): Promise<void> {
       case 'monthly': next.setMonth(next.getMonth() + 1); break
       case 'yearly': next.setFullYear(next.getFullYear() + 1); break
     }
-    todo.nextDate = next.toISOString().slice(0, 10)
+    todo.nextDate = localDateStr(next)
   }
 
   saveTodos(list)

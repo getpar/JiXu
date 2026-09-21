@@ -3,7 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import {
   getRecurringBills, addRecurringBill, deleteRecurringBill,
-  toggleRecurringBill, executeRecurringBill, getMergedCategories,
+  toggleRecurringBill, executeRecurringBill, getMergedCategories, localDateStr,
 } from '../../utils/storage'
 import type { RecurringBill } from '../../utils/storage'
 import './index.scss'
@@ -20,7 +20,7 @@ export default function Recurring(): JSX.Element {
   const [formType, setFormType] = useState<'expense' | 'income'>('expense')
   const [formAmount, setFormAmount] = useState('')
   const [formCycle, setFormCycle] = useState('monthly')
-  const [formNextDate, setFormNextDate] = useState(new Date().toISOString().slice(0, 10))
+  const [formNextDate, setFormNextDate] = useState(localDateStr())
   const [formCatKey, setFormCatKey] = useState('food')
   const [formSubKey, setFormSubKey] = useState('')
   const [formNote, setFormNote] = useState('')
@@ -88,7 +88,7 @@ export default function Recurring(): JSX.Element {
     setFormType('expense')
     setFormAmount('')
     setFormCycle('monthly')
-    setFormNextDate(new Date().toISOString().slice(0, 10))
+    setFormNextDate(localDateStr())
     setFormCatKey('food')
     setFormSubKey('')
     setFormNote('')
