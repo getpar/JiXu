@@ -7,13 +7,15 @@
  * 2. 提供 Taro Storage 的键值存储适配
  *
  * ★═══════════ 激活真云的步骤（拿到 AppID 后照做，除第 1 步外不用改代码）═══════★
- * 1. 把下方 CLOUD_ENV_ID 填入你的 CloudBase 环境 ID（形如 'daily-notes-3gxxxxxxxxxx'）
- * 2. 腾讯云开发控制台 → 环境设置 → 开放配置 → 关联你的微信小程序 AppID
+ * 1. 把下方 DEFAULT_CLOUD_ENV_ID 填入你的 CloudBase 环境 ID（形如 'daily-notes-3gxxxxxxxxxx'）
+ *    （v0.7.1 方案B：不改源码也能换环境——在 Storage 里设 cloud_env_id = 自己的环境 ID 即可覆盖默认值；
+ *     界面上故意不暴露入口，防普通用户误触把账本“换丢”）
+ * 2. 腾讯云开发控制台 → 环境设置 → 小程序认证 → 扫码授权，关联你的微信小程序 AppID
  *    （关联后小程序才能通过 wx.cloud 免域名备案直接访问该环境）
  * 3. 控制台数据库中新建集合：records，权限设置为「所有用户可读，仅创建者可读写」
  * 4. 桌面端无需改动：在侧边栏 ☁️ 云同步里填同一个环境 ID 即可双端打通
  *
- * CLOUD_ENV_ID 为空时自动使用「本地模拟云」（数据存在本机 Storage 的
+ * 环境 ID 为空时自动使用「本地模拟云」（数据存在本机 Storage 的
  * mock_cloud_records 键中），同步逻辑照常运行，仅不会真正跨设备。
  */
 
@@ -23,9 +25,19 @@ import {
   newOwnerId, normalizeOwnerId, isValidOwnerId, lastSyncKey,
 } from './cloudCore'
 
-// ---- 配置：环境 ID 已填入（2026-09-20 开通），清空则自动回退本地模拟云 ----
+// ---- 配置：默认环境 ID 已填入（2026-09-20 开通）；Storage 可用 cloud_env_id 覆盖（方案B），清空则回退本地模拟云 ----
 
-export const CLOUD_ENV_ID = 'daily-notes-d3gaotrwyc09ff44a'
+const DEFAULT_CLOUD_ENV_ID = 'daily-notes-d3gaotrwyc09ff44a'
+const ENV_OVERRIDE_KEY = '***'
+
+/** 当前生效的环境 ID：Storage 自定义覆盖优先，其次内置默认值，都没有 = 空（走模拟云） */
+export function getEnvId(): string {
+  try {
+    const custom = taroStore.get(ENV_OVERRIDE_KEY)
+    if (custom && typeof custom === 'string' && custom.trim()) return custom.trim()
+  } catch { /* Storage 不可用时退回默认环境 */ }
+  return DEFAULT_CLOUD_ENV_ID
+}
 
 // ---- 同步码（户标识，多用户隔离）----
 // 每个微信小程序用户首次使用时自动生成自己的码，互不可见；
@@ -84,19 +96,20 @@ export const taroStore: KVStore = {
 
 // ---- 真云驱动：wx.cloud（微信云开发，与 CloudBase 同底座） ----
 
-let wxInited = false
+let wxInitedEnv = '' // 已 init 过的环境 ID（切换环境时自动重新 init）
 
 function createWxCloudCollection(): CloudCollection | null {
-  if (!CLOUD_ENV_ID) return null
+  const envId = getEnvId()
+  if (!envId) return null
   if (typeof wx === 'undefined' || !wx.cloud) {
     lastInitError = '当前环境不支持 wx.cloud（开发者工具未勾选云开发或未关联环境）'
     console.warn('[Cloud] 当前环境不支持 wx.cloud，回退到本地模拟云')
     return null
   }
   try {
-    if (!wxInited) {
-      wx.cloud.init({ env: CLOUD_ENV_ID, traceUser: true })
-      wxInited = true
+    if (wxInitedEnv !== envId) {
+      wx.cloud.init({ env: envId, traceUser: true })
+      wxInitedEnv = envId
     }
     lastInitError = ''
     const db = wx.cloud.database()
@@ -132,7 +145,7 @@ function createWxCloudCollection(): CloudCollection | null {
 /** v0.7.1 真实连通性自检：实际去云端跑一趟，返回状态与失败原因（云同步弹窗展示用）
  * 典型失败：环境未关联小程序 AppID（-501000 无权限/环境不存在）、网络不通 */
 export async function testCloud(): Promise<{ real: boolean; detail: string }> {
-  if (!CLOUD_ENV_ID) return { real: false, detail: '未配置云环境 ID，当前为本地模拟云（不会跨设备同步）' }
+  if (!getEnvId()) return { real: false, detail: '未配置云环境 ID，当前为本地模拟云（不会跨设备同步）' }
   const col = createWxCloudCollection()
   if (!col) return { real: false, detail: `连接真云失败：${lastInitError || '未知原因'}（数据仅存本机，不会跨设备同步）` }
   try {
@@ -152,7 +165,7 @@ const mockCloud: CloudCollection = createMockCloud(taroStore)
 
 /** 当前是否连接的是真云（false = 本地模拟云） */
 export function usingRealCloud(): boolean {
-  return !!CLOUD_ENV_ID && typeof wx !== 'undefined' && !!wx.cloud
+  return !!getEnvId() && typeof wx !== 'undefined' && !!wx.cloud
 }
 
 /** 获取当前生效的云集合实现（真云优先，自动回退模拟云） */

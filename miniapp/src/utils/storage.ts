@@ -29,7 +29,7 @@ export function localDateStr(d: Date = new Date()): string {
 /**
  * 执行一次双向同步：本地新记录上传云端，云端（桌面端等其他设备）新记录/删除凭证拉回本地。
  * 只同步同一个“同步码”（ownerId）的文档 — 多用户隔离的关键。
- * 未配置 CLOUD_ENV_ID 时走「本地模拟云」，逻辑完全一致，接真云零改动。
+ * 未配置云环境 ID 时走「本地模拟云」，逻辑完全一致，接真云零改动。
  * v0.6.6：删除/编辑通过"删除凭证 + 新增"参与同步（软删除，集合权限不变、无需云函数）。
  */
 export async function syncNow(): Promise<SyncResult> {
