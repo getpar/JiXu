@@ -1,0 +1,22 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "daily-notes-miniapp",
+  "description": "每日小记小程序（Taro 编译产物在 dist/，改代码请改 src/ 后重新 build:weapp）",
+  "appid": "wx556c3ea7340e945f",
+  "compileType": "miniprogram",
+  "libVersion": "2.33.0",
+  "setting": {
+    "urlCheck": false,
+    "es6": false,
+    "enhance": false,
+    "postcss": false,
+    "minified": false,
+    "bundle": false,
+    "userConfirmedBundleSwitch": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "coverView": true,
+    "showShadowRootInWxmlPanel": true
+  },
+  "condition": {}
+}
