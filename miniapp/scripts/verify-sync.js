@@ -13,6 +13,9 @@
  *   ⑥ 不同同步码的两户互不可见（多用户隔离，方案 B）
  *   ⑦ 新设备输入相同同步码 → 拉回整户历史账
  *   ⑧ 同日同额同类两笔 → 按笔数配对，一笔不丢（v0.6.5，方案 C）
+ *   ⑨ 桌面删一笔 → 小程序自动跟上标删，数据留底不真删（v0.6.6，方案乙）
+ *   ⑩ 小程序改一笔 → 双端终态一致（编辑 = 旧笔凭证 + 新笔记账）
+ *   ⑪ 两端各删一笔 → 新设备输入同步码，终态与两家完全一致
  */
 const path = require('path')
 const {
@@ -42,26 +45,49 @@ function countBy(arr) {
   return m
 }
 
-// ---- 模拟桌面端（复刻 desktop cloudbase.ts performSync v0.6.5 按笔数配对算法） ----
+// ---- 模拟桌面端（复刻 desktop cloudbase.ts performSync v0.6.6 笔数配对 + 删除凭证算法） ----
 
 function createDesktopDevice(cloud, ownerId) {
   let local = []
   let lastSyncAt = 0
-  return {
+  const isTomb = (d) => d.kind === 'tombstone'
+  const device = {
     /** 模拟用户在桌面端记一笔（写进本地 SQLite） */
-    appAdd(r) { local.push({ ...r, id: local.length + 1 }) },
+    appAdd(r) { local.push({ ...r, id: local.length + 1, deleted: 0 }) },
+    /** 模拟点"删除"：只打标记，不同步（v0.6.6 软删除） */
+    appDelete(filterFn) {
+      const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('桌面端没找到要删的记录')
+      rec.deleted = 1
+      return rec
+    },
+    /** 模拟"编辑"：旧行标删 + 新增一笔（与主进程 records:update 一致） */
+    appUpdate(filterFn, patch) {
+      const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('桌面端没找到要改的记录')
+      rec.deleted = 1
+      local.push({ ...rec, ...patch, id: local.length + 1, deleted: 0 })
+      return rec
+    },
     getLocal: () => local,
+    /** 页面可见记录（已删的不显示，但库里留底） */
+    visible: () => local.filter((r) => !(r.deleted > 0)),
     /** 模拟桌面端点击"同步"按钮 */
     async performSync() {
-      const existing = await cloud.listAll(ownerId)
-      const cloudCounts = countBy(existing.map(recordKey))
-      const localCounts = countBy(local.map(recordKey))
-      // 推送：本地比云端多出的笔数逐笔补传
+      const docs = await cloud.listAll(ownerId)
+      const cloudRecs = docs.filter((d) => !isTomb(d))
+      const cloudTombs = docs.filter(isTomb)
+      const cloudRecCounts = countBy(cloudRecs.map(recordKey))
+      const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
+      const localTotals = countBy(local.map(recordKey))            // 存活 + 已删
+      const deadList = local.filter((r) => (r.deleted || 0) > 0)
+      const localDeadCounts = countBy(deadList.map(recordKey))
+      // 1. 补传账单：本地总行数超出云端账单数的部分（已删行也算底数）
       let uploaded = 0
       const pushPerKey = new Map()
       for (const r of local) {
         const k = recordKey(r)
-        const need = (localCounts.get(k) || 0) - (cloudCounts.get(k) || 0)
+        const need = (localTotals.get(k) || 0) - (cloudRecCounts.get(k) || 0)
         const done = pushPerKey.get(k) || 0
         if (need > 0 && done < need) {
           await cloud.add(localToCloud(r, 'desktop', now(), ownerId))
@@ -69,29 +95,53 @@ function createDesktopDevice(cloud, ownerId) {
           pushPerKey.set(k, done + 1)
         }
       }
-      // 拉取：首同步全量，之后按 updatedAt 增量（对齐 downloadSince）
-      const raw = lastSyncAt === 0 ? existing : existing.filter((r) => (r.updatedAt || 0) > lastSyncAt)
-      const cloudAllCounts = new Map(cloudCounts)
-      for (const [k, n] of pushPerKey) cloudAllCounts.set(k, (cloudAllCounts.get(k) || 0) + n)
-      const takenPerKey = new Map()
-      const toAdd = []
-      for (const r of raw) {
+      // 2. 补传删除凭证：本地已删数超出云端凭证数的部分
+      const pushTomb = new Map()
+      for (const r of deadList) {
         const k = recordKey(r)
-        const cap = (cloudAllCounts.get(k) || 0) - (localCounts.get(k) || 0)
-        const taken = takenPerKey.get(k) || 0
-        if (taken < cap) {
-          takenPerKey.set(k, taken + 1)
-          toAdd.push(cloudToLocal(r))
+        const need = (localDeadCounts.get(k) || 0) - (cloudTombCounts.get(k) || 0)
+        const done = pushTomb.get(k) || 0
+        if (need > 0 && done < need) {
+          await cloud.add({ kind: 'tombstone', targetKey: k, ownerId, updatedAt: now(), source: 'desktop' })
+          uploaded++
+          pushTomb.set(k, done + 1)
         }
       }
-      toAdd.forEach((r) => local.push(r))
+      // 3. 补拉账单：首同步全量，之后按 updatedAt 增量；差额驱动防重复
+      const raw = lastSyncAt === 0 ? cloudRecs : cloudRecs.filter((r) => (r.updatedAt || 0) > lastSyncAt)
+      const cloudAllCounts = new Map(cloudRecCounts)
+      pushPerKey.forEach((n, k) => cloudAllCounts.set(k, (cloudAllCounts.get(k) || 0) + n))
+      const takenPerKey = new Map()
+      let downloaded = 0
+      for (const r of raw) {
+        const k = recordKey(r)
+        const cap = (cloudAllCounts.get(k) || 0) - (localTotals.get(k) || 0)
+        const taken = takenPerKey.get(k) || 0
+        if (cap > 0 && taken < cap) {
+          takenPerKey.set(k, taken + 1)
+          local.push(cloudToLocal(r))
+          downloaded++
+        }
+      }
+      // 4. 凭证补标删：云端凭证数超出本地已删数的差额，把存活那份标掉（不设窗口，必收敛）
+      let marked = 0
+      cloudTombCounts.forEach((tombCount, k) => {
+        const need = tombCount - (localDeadCounts.get(k) || 0)
+        if (need <= 0) return
+        let done = 0
+        for (const r of local) {
+          if (done >= need) break
+          if (!(r.deleted > 0) && recordKey(r) === k) { r.deleted = 1; done++; marked++ }
+        }
+      })
       lastSyncAt = now()
-      return { uploaded, downloaded: toAdd.length }
+      return { uploaded, downloaded, marked }
     },
   }
+  return device
 }
 
-// ---- 模拟小程序端（走真正的上线代码 runSync + addRecord 写本地后立即引擎推送） ----
+// ---- 模拟小程序端（走真正的上线代码 runSync；删/改 = 写本地标记后由引擎推凭证） ----
 
 function createMiniappDevice(cloud, ownerId) {
   let local = []
@@ -100,21 +150,46 @@ function createMiniappDevice(cloud, ownerId) {
     let added = 0
     for (const r of recs) {
       if (r.id && local.some((l) => String(l.id) === String(r.id))) continue // 只防同一条云端记录重复导入
-      local.push(r)
+      local.push({ ...r, deleted: 0 })
       added++
     }
     return added
   }
+  /** 模拟 storage.ts markLocalDeleted：按去重键把前 count 笔存活记录标删 */
+  async function markLocal(key, count) {
+    let done = 0
+    for (const r of local) {
+      if (done >= count) break
+      if (!(r.deleted > 0) && recordKey(r) === key) { r.deleted = 1; done++ }
+    }
+    return done
+  }
   function sync() {
-    return runSync({ cloud, source: 'miniapp', ownerId, getLocal: async () => local, addLocal, store, now })
+    return runSync({ cloud, source: 'miniapp', ownerId, getLocal: async () => local, addLocal, markLocal, store, now })
   }
   return {
     /** 模拟 storage.ts addRecord：写本地 + 立即触发一次同步（由引擎按笔数上云），返回同步结果 */
     async appAdd(r) {
-      local.unshift({ ...r, id: String(now()) })
+      local.unshift({ ...r, id: String(now()), deleted: 0 })
+      return sync()
+    },
+    /** 模拟 storage.ts deleteRecord：标删 + 立即同步（凭证随同步上云） */
+    async appDelete(filterFn) {
+      const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('小程序没找到要删的记录')
+      rec.deleted = 1
+      return sync()
+    },
+    /** 模拟 storage.ts updateRecord：旧笔标删 + 新笔插入 + 立即同步 */
+    async appUpdate(filterFn, patch) {
+      const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('小程序没找到要改的记录')
+      rec.deleted = 1
+      local.unshift({ ...rec, ...patch, id: String(now()), deleted: 0 })
       return sync()
     },
     getLocal: () => local,
+    visible: () => local.filter((r) => !(r.deleted > 0)),
     /** 模拟页面 useDidShow 时触发的 syncNow */
     sync,
   }
@@ -219,6 +294,42 @@ async function main() {
   assert(miniapp.getLocal().filter((r) => r.amount === 888).length === 2, `小程序本地同键 2 笔未被合成 1 笔（实际 ${miniapp.getLocal().filter((r) => r.amount === 888).length}）`)
   dr = await desktop.performSync()
   assert(dr.uploaded === 0 && dr.downloaded === 0, `收敛：平衡后再同步 0 推 0 拉（uploaded=${dr.uploaded}, downloaded=${dr.downloaded}）`)
+
+  console.log('\n【场景⑨】桌面删一笔 → 上传删除凭证 → 小程序自动跟上标删，数据留底（v0.6.6 方案乙）')
+  desktop.appDelete((r) => r.amount === 2 && r.date === '2026-09-19') // 公交 ¥2
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 1 && dr.downloaded === 0 && dr.marked === 0, `桌面只传 1 条删除凭证，已删行不倒灌（uploaded=${dr.uploaded}）`)
+  mr = await miniapp.sync()
+  assert(mr.ok && mr.pushed === 0 && mr.pulled === 1, `小程序拉到凭证并标删 1 笔（pulled=${mr.pulled}）`)
+  assert(!miniapp.visible().some((r) => r.amount === 2), '小程序页面不再显示公交 ¥2')
+  assert(miniapp.getLocal().some((r) => r.amount === 2 && r.deleted === 1), '小程序库里仍保留该笔 deleted=1（可恢复）')
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 0 && dr.downloaded === 0 && dr.marked === 0, `收敛：桌面再同步 0 推 0 拉，自己的凭证不会回敲自己`)
+
+  console.log('\n【场景⑩】小程序编辑一笔拿铁 ¥18 → ¥28 → 双端终态一致（编辑 = 旧笔凭证 + 新笔记账）')
+  mr = await miniapp.appUpdate((r) => r.amount === 18 && r.date === '2026-09-20', { amount: 28, note: '摩卡' })
+  assert(mr.ok && mr.pushed === 2, `小程序上云 1 凭证 + 1 新记录（pushed=${mr.pushed}）`)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 0 && dr.downloaded === 1 && dr.marked === 1, `桌面拉回新 1 笔、旧笔跟上标删（downloaded=${dr.downloaded}, marked=${dr.marked}）`)
+  assert(desktop.visible().some((r) => r.amount === 28 && r.note === '摩卡'), '桌面看到改后的 ¥28 新记录')
+  assert(!desktop.visible().some((r) => r.amount === 18 && r.date === '2026-09-20'), '桌面不再显示旧记录 ¥18（9月21日那笔同价咖啡不受影响）')
+
+  console.log('\n【场景⑪】桌面删加班餐 ¥25、小程序删一笔 888 → 新设备终态完全一致')
+  desktop.appDelete((r) => r.amount === 25 && r.date === '2026-09-20')
+  await desktop.performSync()
+  mr = await miniapp.appDelete((r) => r.amount === 888) // 只标删其中一笔
+  assert(mr.pushed === 1 && mr.pulled === 1, `小程序推 888 凭证 1 条 + 拉回 25 的标删（pushed=${mr.pushed}, pulled=${mr.pulled}）`)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 0 && dr.marked === 1, `桌面跟上小程序的删除，另一笔 888 仍完好（marked=${dr.marked}）`)
+  assert(desktop.visible().filter((r) => r.amount === 888).length === 1, '桌面可见 888 剩 1 笔（两笔各删一半）')
+  const freshDesktop = createDesktopDevice(cloud, HOUSE_A)
+  dr = await freshDesktop.performSync()
+  assert(dr.uploaded === 0 && dr.downloaded === 10, `新设备拉到全部 10 条账单（含被删的，downloaded=${dr.downloaded}）`)
+  assert(freshDesktop.visible().length === 6, `新设备显示 6 笔，与双端一致（visible=${freshDesktop.visible().length}）`)
+  assert(!freshDesktop.visible().some((r) => r.amount === 2 || (r.amount === 18 && r.date === '2026-09-20') || (r.amount === 25 && r.date === '2026-09-20')),
+    '4 笔被删的（公交/旧拿铁/加班餐/一笔 888）在新设备上也已标删')
+  assert(freshDesktop.visible().some((r) => r.amount === 28) && freshDesktop.visible().some((r) => r.amount === 2400),
+    '改后的 ¥28 与房租 ¥2400 完好可见')
 
   // ---- 汇总 ----
 

@@ -46,7 +46,7 @@ async function initDatabase(): Promise<void> {
     db = new SQL.Database()
   }
 
-  // 流水记录表 — 支持支出和收入
+  // 流水记录表 — 支持支出和收入；v0.6.6 软删除：deleted=1 的行页面不显示但数据留底可恢复
   db.run(`
     CREATE TABLE IF NOT EXISTS records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,9 +57,18 @@ async function initDatabase(): Promise<void> {
       note TEXT DEFAULT '',
       record_date TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      deleted INTEGER NOT NULL DEFAULT 0
     )
   `)
+
+  // 老库兼容：缺 deleted 列时自动补列（用户无需删库重装）
+  const recCols = db.exec("PRAGMA table_info(records)")
+  const hasDeletedCol = (recCols[0]?.values || []).some((v) => v[1] === 'deleted')
+  if (!hasDeletedCol) {
+    db.run('ALTER TABLE records ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+    saveDatabase()
+  }
 
   // 兼容旧表：如果存在旧 expenses 表，迁移数据
   const hasOldTable = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='expenses'")
@@ -292,9 +301,10 @@ function setupIPC(): void {
   ipcMain.handle('records:getList', (_event, filters?: {
     page?: number; pageSize?: number; month?: string
     category_key?: string; type?: string; keyword?: string
+    includeDeleted?: boolean   // v0.6.6：同步引擎需要含已删除行的全量底数；页面默认不传 = 只看正常记录
   }) => {
-    const { page = 1, pageSize = 20, month, category_key, type, keyword } = filters || {}
-    let where = 'WHERE 1=1'
+    const { page = 1, pageSize = 20, month, category_key, type, keyword, includeDeleted } = filters || {}
+    let where = includeDeleted ? 'WHERE 1=1' : 'WHERE r.deleted = 0'
     const params: any[] = []
 
     if (month) {
@@ -335,27 +345,52 @@ function setupIPC(): void {
     return { rows: rows.map(oldToNew), total, page, pageSize }
   })
 
+  // v0.6.6 软删除：不再物理删行，标记 deleted=1（数据留底可恢复；同步时由引擎上传"删除凭证"告知其它设备）
   ipcMain.handle('records:delete', (_event, id: number) => {
-    db!.run('DELETE FROM records WHERE id = ?', [id])
+    db!.run("UPDATE records SET deleted = 1, updated_at = datetime('now','localtime') WHERE id = ?", [id])
     saveDatabase()
     return { success: true }
   })
 
+  // v0.6.6 编辑 = 旧行打删除标记 + 新增一笔（删除凭证 + 新记录一起同步，跨端生效）
   ipcMain.handle('records:update', (_event, id: number, data: {
     type: string; amount: number; category_key: string
     subcategory_key: string; note: string; record_date: string
   }) => {
+    const old = queryOne('SELECT * FROM records WHERE id = ?', [id])
+    if (!old) return { success: false }
+    db!.run("UPDATE records SET deleted = 1, updated_at = datetime('now','localtime') WHERE id = ?", [id])
     db!.run(
-      `UPDATE records SET type=?, amount=?, category_key=?, subcategory_key=?, note=?, record_date=?, updated_at=datetime('now','localtime') WHERE id=?`,
-      [data.type, data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, id]
+      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date) VALUES (?, ?, ?, ?, ?, ?)',
+      [data.type, data.amount, data.category_key, data.subcategory_key, data.note, data.record_date]
     )
+    const result = db!.exec('SELECT last_insert_rowid() as id')
+    const newId = result[0]?.values[0]?.[0] || 0
     saveDatabase()
-    return { success: true }
+    return { success: true, id: newId }
   })
 
-  // ---- 统计 ----
+  // v0.6.6 同步引擎拉到云端"删除凭证"后，按指纹把本地存活记录标删（不重复上传凭证，凭证已在云端）
+  ipcMain.handle('records:markByFingerprint', (_event, parts: {
+    date: string; amount: number; subcategoryKey: string; type: string
+  }, count: number) => {
+    db!.run(
+      `UPDATE records SET deleted = 1 WHERE id IN (
+         SELECT id FROM records
+         WHERE deleted = 0 AND record_date = ? AND amount = ? AND subcategory_key = ? AND type = ?
+         LIMIT ?
+       )`,
+      [parts.date, parts.amount, parts.subcategoryKey, parts.type, count]
+    )
+    const changed = db!.exec('SELECT changes()')
+    const marked = changed[0]?.values[0]?.[0] || 0
+    if (marked) saveDatabase()
+    return { marked }
+  })
+
+  // ---- 统计 ----（v0.6.6：全部只统计未删除记录）
   ipcMain.handle('stats:getMonthlyStats', (_event, month: string, recordType?: string) => {
-    let where = "WHERE strftime('%Y-%m', r.record_date) = ?"
+    let where = "WHERE r.deleted = 0 AND strftime('%Y-%m', r.record_date) = ?"
     const params: any[] = [month]
     if (recordType) {
       where += ' AND r.type = ?'
@@ -373,7 +408,7 @@ function setupIPC(): void {
   })
 
   ipcMain.handle('stats:getMonthlyTotal', (_event, month: string, recordType?: string) => {
-    let where = "WHERE strftime('%Y-%m', record_date) = ?"
+    let where = "WHERE deleted = 0 AND strftime('%Y-%m', record_date) = ?"
     const params: any[] = [month]
     if (recordType) {
       where += ' AND type = ?'
@@ -384,7 +419,7 @@ function setupIPC(): void {
   })
 
   ipcMain.handle('stats:getDailyTrend', (_event, month: string, recordType?: string) => {
-    let where = "WHERE strftime('%Y-%m', record_date) = ?"
+    let where = "WHERE deleted = 0 AND strftime('%Y-%m', record_date) = ?"
     const params: any[] = [month]
     if (recordType) {
       where += ' AND type = ?'
@@ -401,17 +436,17 @@ function setupIPC(): void {
     const m1 = queryAll(
       `SELECT r.category_key, c.category_name, SUM(r.amount) as total
        FROM records r LEFT JOIN categories c ON r.category_key = c.category_key AND r.subcategory_key = c.subcategory_key
-       WHERE strftime('%Y-%m', r.record_date) = ? AND r.type = 'expense'
+       WHERE r.deleted = 0 AND strftime('%Y-%m', r.record_date) = ? AND r.type = 'expense'
        GROUP BY r.category_key ORDER BY total DESC`, [month1]
     )
     const m2 = queryAll(
       `SELECT r.category_key, c.category_name, SUM(r.amount) as total
        FROM records r LEFT JOIN categories c ON r.category_key = c.category_key AND r.subcategory_key = c.subcategory_key
-       WHERE strftime('%Y-%m', r.record_date) = ? AND r.type = 'expense'
+       WHERE r.deleted = 0 AND strftime('%Y-%m', r.record_date) = ? AND r.type = 'expense'
        GROUP BY r.category_key ORDER BY total DESC`, [month2]
     )
-    const t1 = queryOne("SELECT COALESCE(SUM(amount),0) as total FROM records WHERE strftime('%Y-%m', record_date)=? AND type='expense'", [month1])?.total || 0
-    const t2 = queryOne("SELECT COALESCE(SUM(amount),0) as total FROM records WHERE strftime('%Y-%m', record_date)=? AND type='expense'", [month2])?.total || 0
+    const t1 = queryOne("SELECT COALESCE(SUM(amount),0) as total FROM records WHERE deleted=0 AND strftime('%Y-%m', record_date)=? AND type='expense'", [month1])?.total || 0
+    const t2 = queryOne("SELECT COALESCE(SUM(amount),0) as total FROM records WHERE deleted=0 AND strftime('%Y-%m', record_date)=? AND type='expense'", [month2])?.total || 0
     return { month1: { rows: m1, total: t1 }, month2: { rows: m2, total: t2 } }
   })
 
@@ -431,7 +466,7 @@ function setupIPC(): void {
   ipcMain.handle('records:exportAll', (_event, month?: string, recordType?: string) => {
     let where = ''
     const params: any[] = []
-    const conditions: string[] = []
+    const conditions: string[] = ['r.deleted = 0']
     if (month) { conditions.push("strftime('%Y-%m', r.record_date) = ?"); params.push(month) }
     if (recordType) { conditions.push("r.type = ?"); params.push(recordType) }
     if (conditions.length > 0) where = ' WHERE ' + conditions.join(' AND ')

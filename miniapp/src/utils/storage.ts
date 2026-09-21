@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro'
 import { getCloudCollection, getOwnerId, taroStore } from './cloud'
-import { runSync, SyncableRecord, SyncResult } from './cloudCore'
+import { runSync, recordKey, parseRecordKey, SyncableRecord, SyncResult } from './cloudCore'
 
 // ========== 类型 ==========
 
@@ -14,30 +14,32 @@ export interface RecordItem {
   subcategoryName: string
   note: string
   date: string
+  deleted?: number      // v0.6.6 软删除：1 = 已删（页面不显示，数据留底可恢复）；undefined/0 = 正常
 }
 
 // ========== 云同步（本地为主 + 云端双向增量同步） ==========
 
 /**
- * 执行一次双向同步：本地新记录上传云端，云端（桌面端等其他设备）新记录拉回本地。
- * 只同步同一个“同步码”（ownerId）的记录 — 多用户隔离的关键。
+ * 执行一次双向同步：本地新记录上传云端，云端（桌面端等其他设备）新记录/删除凭证拉回本地。
+ * 只同步同一个“同步码”（ownerId）的文档 — 多用户隔离的关键。
  * 未配置 CLOUD_ENV_ID 时走「本地模拟云」，逻辑完全一致，接真云零改动。
- * 同步范围为新增记录（按笔数配对）；编辑/删除暂不同步（与桌面端当前行为一致）。
+ * v0.6.6：删除/编辑通过"删除凭证 + 新增"参与同步（软删除，集合权限不变、无需云函数）。
  */
 export async function syncNow(): Promise<SyncResult> {
   return runSync({
     cloud: getCloudCollection(),
     source: 'miniapp',
     ownerId: getOwnerId(),
-    getLocal: getRecords,
+    getLocal: getAllRecords,
     addLocal: mergeLocalRecords,
+    markLocal: markLocalDeleted,
     store: taroStore,
   })
 }
 
-/** 把云端记录写入本地（v0.6.5：笔数配对已由同步引擎算好，这里只防同一云端记录重复入账），返回实际新增条数 */
+/** 把云端记录写入本地（笔数配对由引擎算好，这里只防同一条云端记录重复入账），返回实际新增条数 */
 async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
-  const list = await getRecords()
+  const list = await getAllRecords()
   const seenIds = new Set(list.map((r) => String(r.id)))
   let added = 0
   for (const r of records) {
@@ -53,9 +55,32 @@ async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
   return added
 }
 
+/** 按去重键把 count 笔本地存活记录标删（引擎拉到云端删除凭证时调用） */
+async function markLocalDeleted(key: string, count: number): Promise<number> {
+  const parts = parseRecordKey(key)
+  if (!parts) return 0
+  const list = await getAllRecords()
+  let marked = 0
+  for (const r of list) {
+    if (marked >= count) break
+    if (!r.deleted && recordKey(r) === key) {
+      r.deleted = 1
+      marked++
+    }
+  }
+  if (marked > 0) saveLocalRecords(list)
+  return marked
+}
+
 // ========== 记录 CRUD ==========
 
 export async function getRecords(): Promise<RecordItem[]> {
+  // 页面展示用：只返回未删除的记录（软删除对全页面自动生效）
+  return (await getAllRecords()).filter((r) => !(r.deleted || 0))
+}
+
+/** 引擎内部用：返回全部行（含已标记删除的，笔数配对需要完整底数） */
+async function getAllRecords(): Promise<RecordItem[]> {
   // 本地存储是读取的唯一来源（快、可离线），云端由 syncNow 增量合入
   const raw = Taro.getStorageSync('daily_records')
   return raw ? JSON.parse(raw) : []
@@ -77,13 +102,30 @@ export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<void> {
   } catch { /* 失败不阻塞，下次进页的 syncNow 会兜底补传 */ }
 }
 
-// 注意：删除/编辑仅作用于本地，暂不同步到云端（与桌面端行为一致，避免幽灵记录）
+// v0.6.6 软删除：删除 = 标记 + 同步（把"删除凭证"推上云，另一端同步后也跟着标删；本地数据留底可恢复）
 export async function deleteRecord(id: string): Promise<void> {
-  saveLocalRecords((await getRecords()).filter((r) => r.id !== id))
+  const list = await getAllRecords()
+  const rec = list.find((r) => String(r.id) === String(id))
+  if (!rec || rec.deleted) return
+  rec.deleted = 1
+  saveLocalRecords(list)
+  try {
+    await syncNow() // 把删除凭证同步上云（失败不阻塞，下次同步会补传）
+  } catch { /* ignore */ }
 }
 
+// 编辑 = 旧记录打删除凭证 + 新增一笔（两个动作都参与同步，金额/日期/备注/分类修改都能跨端生效）
 export async function updateRecord(id: string, data: Partial<RecordItem>): Promise<void> {
-  saveLocalRecords((await getRecords()).map((r) => (r.id === id ? { ...r, ...data } : r)))
+  const list = await getAllRecords()
+  const old = list.find((r) => String(r.id) === String(id))
+  if (!old || old.deleted) return
+  old.deleted = 1
+  list.unshift({ ...old, ...data, id: `${Date.now()}`, deleted: 0 } as RecordItem)
+  list.sort((a, b) => b.date.localeCompare(a.date))
+  saveLocalRecords(list)
+  try {
+    await syncNow()
+  } catch { /* ignore */ }
 }
 
 // ========== 统计 ==========

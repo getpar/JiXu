@@ -155,8 +155,8 @@ function AppLayout(): JSX.Element {
 
     setSyncing(true)
     try {
-      // 1. 拉取全部本地记录（用列表接口，带分类 key；不能用导出格式，它只有中文名、缺 categoryKey 会导致云端数据残缺）
-      const { rows } = await window.electronAPI.getRecordList({ page: 1, pageSize: 100000 })
+      // 1. 拉取全部本地记录（v0.6.6：includeDeleted 取全量底数，含已软删行；引擎按"本地总行数↔云端账单数"配对）
+      const { rows } = await window.electronAPI.getRecordList({ page: 1, pageSize: 100000, includeDeleted: true })
       const localRecords = rows.map((r: any) => ({
         type: r.type,
         amount: Number(r.amount) || 0,
@@ -166,10 +166,11 @@ function AppLayout(): JSX.Element {
         subcategoryName: r.subcategory_name || '',
         note: r.note || '',
         date: r.record_date || '',
+        deleted: r.deleted ? 1 : 0,
       }))
 
       // 2. 执行同步
-      const { result, newCloudRecords } = await performSync(localRecords)
+      const { result, newCloudRecords, toMark } = await performSync(localRecords)
 
       if (result.success) {
         // 3. 将云端新记录写入本地 SQLite
@@ -189,10 +190,23 @@ function AppLayout(): JSX.Element {
           } catch { /* skip duplicates */ }
         }
 
-        if (result.uploaded === 0 && imported === 0) {
+        // 4. 按云端"删除凭证"软删本地记录（数据留底，页面不再显示；其它设备删的，本端跟上）
+        let marked = 0
+        for (const m of toMark) {
+          try {
+            const res = await window.electronAPI.markRecordByFingerprint(m.parts, m.count)
+            marked += res?.marked || 0
+          } catch { /* skip */ }
+        }
+
+        if (result.uploaded === 0 && imported === 0 && marked === 0) {
           message.success('数据已是最新，无需同步')
         } else {
-          message.success(`同步完成：上传 ${result.uploaded} 条，下载 ${imported} 条`)
+          const parts: string[] = []
+          if (result.uploaded > 0) parts.push(`上传 ${result.uploaded} 条`)
+          if (imported > 0) parts.push(`下载 ${imported} 条`)
+          if (marked > 0) parts.push(`按云端凭证删除 ${marked} 条`)
+          message.success(`同步完成：${parts.join('，')}`)
         }
       } else {
         message.warning(result.error || '同步失败，请检查网络和环境 ID')
