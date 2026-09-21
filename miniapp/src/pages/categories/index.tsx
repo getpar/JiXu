@@ -2,6 +2,7 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState } from 'react'
 import { getMergedCategories, addCustomCategory, deleteCustomCategory, isCustomCategory } from '../../utils/storage'
+import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 const MAJORS = [
@@ -13,6 +14,7 @@ const MAJORS = [
 ]
 
 export default function Categories(): JSX.Element {
+  const dark = useThemeDark()
   const [cats, setCats] = useState<any[]>([])
   const [editingGroup, setEditingGroup] = useState<string | null>(null)  // 正在添加的大类 key
   const [subName, setSubName] = useState('')
@@ -77,7 +79,7 @@ export default function Categories(): JSX.Element {
   }
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 顶栏 */}
       <View className='header-row'>
         <Text className='page-title'>🏷️ 分类管理</Text>

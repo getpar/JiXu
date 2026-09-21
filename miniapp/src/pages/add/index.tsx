@@ -2,6 +2,7 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { getMergedCategories, addRecord } from '../../utils/storage'
+import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 function today(): string {
@@ -10,6 +11,7 @@ function today(): string {
 }
 
 export default function Add(): JSX.Element {
+  const dark = useThemeDark()
   const [type, setType] = useState<'expense' | 'income'>('expense')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(today())
@@ -46,7 +48,7 @@ export default function Add(): JSX.Element {
   }
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 类型切换 */}
       <View className='type-switch'>
         <View className={`type-btn ${type === 'expense' ? 'active expense' : ''}`} onClick={() => setType('expense')}><Text>💰 支出</Text></View>

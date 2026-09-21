@@ -1,13 +1,13 @@
-.wrap { padding: 0 24rpx 120rpx; background: #F1F5F9; min-height: 100vh; }
+.wrap { padding: 0 24rpx 120rpx; background: var(--bg); min-height: 100vh; }
 
 /* ---- 顶栏 ---- */
 .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 24rpx 8rpx 20rpx; }
 .back-btn { font-size: 28rpx; color: #FF6B35; font-weight: 500; }
-.title { font-size: 34rpx; font-weight: 800; color: #1E293B; }
+.title { font-size: 34rpx; font-weight: 800; color: var(--text); }
 .placeholder { width: 60rpx; }
 
 /* ---- 说明 ---- */
-.hint { background: #FFFBF8; border-radius: 16rpx; padding: 18rpx 24rpx; margin-bottom: 16rpx; border: 2rpx solid #FFF0E8; }
+.hint { background: var(--soft); border-radius: 16rpx; padding: 18rpx 24rpx; margin-bottom: 16rpx; border: 2rpx solid #FFF0E8; }
 .hint Text { font-size: 26rpx; color: #B45309; line-height: 1.6; }
 
 /* ---- 添加按钮 ---- */
@@ -15,18 +15,18 @@
 .add-btn-text { color: #fff; font-size: 30rpx; font-weight: 700; }
 
 /* ---- 空态 ---- */
-.empty { text-align: center; padding: 80rpx 0; color: #CBD5E1; font-size: 28rpx; }
+.empty { text-align: center; padding: 80rpx 0; color: var(--faint); font-size: 28rpx; }
 .empty-icon { font-size: 56rpx; display: block; margin-bottom: 16rpx; }
 
 /* ---- 账单卡片 ---- */
-.bill-card { background: #fff; border-radius: 28rpx; padding: 24rpx 28rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04); }
+.bill-card { background: var(--card); border-radius: 28rpx; padding: 24rpx 28rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04); }
 .bill-card.inactive { opacity: 0.5; }
 .bill-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14rpx; }
 .bill-type-row { display: flex; align-items: center; gap: 10rpx; }
 .type-dot { width: 14rpx; height: 14rpx; border-radius: 50%; }
 .type-dot.expense { background: #EF4444; }
 .type-dot.income { background: #10B981; }
-.bill-cat { font-size: 26rpx; color: #64748B; font-weight: 500; }
+.bill-cat { font-size: 26rpx; color: var(--sub); font-weight: 500; }
 .bill-amount { font-size: 36rpx; font-weight: 800; font-variant-numeric: tabular-nums; }
 .bill-info { display: flex; align-items: center; gap: 12rpx; margin-bottom: 18rpx; flex-wrap: wrap; }
 .cycle-tag { padding: 6rpx 16rpx; border-radius: 10rpx; font-size: 24rpx; font-weight: 500; }
@@ -34,12 +34,12 @@
 .cycle-tag.weekly { background: #F3E8FF; color: #8B5CF6; }
 .cycle-tag.monthly { background: #FFF0E8; color: #FF6B35; }
 .cycle-tag.yearly { background: #ECFEFF; color: #06B6D4; }
-.next-date { font-size: 24rpx; color: #94A3B8; }
-.note-text { font-size: 24rpx; color: #CBD5E1; }
+.next-date { font-size: 24rpx; color: var(--muted); }
+.note-text { font-size: 24rpx; color: var(--faint); }
 .bill-actions { display: flex; gap: 12rpx; align-items: center; }
 .toggle-btn { padding: 8rpx 20rpx; border-radius: 10rpx; font-size: 24rpx; }
 .toggle-btn.on { background: #ECFDF5; color: #10B981; }
-.toggle-btn.off { background: #F1F5F9; color: #94A3B8; }
+.toggle-btn.off { background: var(--soft); color: var(--muted); }
 .exec-btn { padding: 8rpx 20rpx; border-radius: 10rpx; background: #FFF0E8; color: #FF6B35; font-size: 24rpx; font-weight: 600; }
 .del-btn { padding: 8rpx 20rpx; border-radius: 10rpx; background: #FEF2F2; color: #EF4444; font-size: 24rpx; }
 
@@ -49,28 +49,28 @@
 
 /* ---- 弹窗 ---- */
 .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: #fff; border-radius: 28rpx; padding: 36rpx; width: 88%; max-width: 600rpx; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
-.modal-title { font-size: 34rpx; font-weight: 700; display: block; margin-bottom: 28rpx; color: #1E293B; }
+.modal-box { background: var(--card); border-radius: 28rpx; padding: 36rpx; width: 88%; max-width: 600rpx; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
+.modal-title { font-size: 34rpx; font-weight: 700; display: block; margin-bottom: 28rpx; color: var(--text); }
 
 .form-item { margin-bottom: 20rpx; }
-.form-label { font-size: 26rpx; color: #64748B; font-weight: 500; display: block; margin-bottom: 10rpx; }
+.form-label { font-size: 26rpx; color: var(--sub); font-weight: 500; display: block; margin-bottom: 10rpx; }
 
-.type-switch { display: flex; gap: 12rpx; background: #F1F5F9; border-radius: 14rpx; padding: 6rpx; }
-.type-btn { flex: 1; text-align: center; padding: 14rpx; border-radius: 12rpx; font-size: 28rpx; color: #94A3B8; font-weight: 500; }
+.type-switch { display: flex; gap: 12rpx; background: var(--soft); border-radius: 14rpx; padding: 6rpx; }
+.type-btn { flex: 1; text-align: center; padding: 14rpx; border-radius: 12rpx; font-size: 28rpx; color: var(--muted); font-weight: 500; }
 .type-btn.active.expense { background: #EF4444; color: #fff; font-weight: 700; }
 .type-btn.active.income { background: #10B981; color: #fff; font-weight: 700; }
 
-.amount-input { display: flex; align-items: center; border: 3rpx solid #E2E8F0; border-radius: 16rpx; padding: 0 20rpx; background: #F8FAFC; }
+.amount-input { display: flex; align-items: center; border: 3rpx solid var(--line); border-radius: 16rpx; padding: 0 20rpx; background: var(--soft); }
 .amount-input .prefix { font-size: 40rpx; font-weight: 700; color: #FF6B35; margin-right: 12rpx; }
 .amount-input Input { flex: 1; height: 88rpx; line-height: 88rpx; font-size: 40rpx; font-weight: 700; }
 
-.picker { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border: 3rpx solid #E2E8F0; border-radius: 16rpx; background: #F8FAFC; font-size: 28rpx; color: #1E293B; }
-.picker .arrow { font-size: 20rpx; color: #94A3B8; }
+.picker { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border: 3rpx solid var(--line); border-radius: 16rpx; background: var(--soft); font-size: 28rpx; color: var(--text); }
+.picker .arrow { font-size: 20rpx; color: var(--muted); }
 
-.note-input { border: 3rpx solid #E2E8F0; border-radius: 16rpx; padding: 20rpx 24rpx; background: #F8FAFC; height: 80rpx; line-height: 40rpx; font-size: 28rpx; box-sizing: border-box; }
+.note-input { border: 3rpx solid var(--line); border-radius: 16rpx; padding: 20rpx 24rpx; background: var(--soft); height: 80rpx; line-height: 40rpx; font-size: 28rpx; box-sizing: border-box; }
 
 .modal-btns { display: flex; justify-content: flex-end; gap: 20rpx; margin-top: 28rpx; }
 .btn { padding: 18rpx 44rpx; border-radius: 14rpx; font-size: 28rpx; text-align: center; }
-.btn-cancel { background: #F1F5F9; color: #64748B; }
+.btn-cancel { background: var(--soft); color: var(--sub); }
 .btn-ok { background: #FF6B35; }
 .btn-ok-text { color: #fff; font-weight: 600; }

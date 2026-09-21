@@ -1,15 +1,15 @@
-.wrap { padding: 24rpx; padding-bottom: 120rpx; }
+.wrap { padding: 24rpx; padding-bottom: 120rpx; background: var(--bg); min-height: 100vh; }
 
 /* 类型切换 */
-.type-switch { display: flex; gap: 16rpx; margin-bottom: 20rpx; background: #F1F5F9; border-radius: 18rpx; padding: 6rpx; }
-.type-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 14rpx; font-size: 28rpx; color: #94A3B8; font-weight: 500; transition: all 0.2s; }
+.type-switch { display: flex; gap: 16rpx; margin-bottom: 20rpx; background: var(--soft); border-radius: 18rpx; padding: 6rpx; }
+.type-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 14rpx; font-size: 28rpx; color: var(--muted); font-weight: 500; transition: all 0.2s; }
 .type-btn.active { color: #fff; font-weight: 700; box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.1); }
 .type-btn.active.expense { background: #EF4444; }
 .type-btn.active.income { background: #10B981; }
 
 /* 卡片 */
-.card { background: #fff; border-radius: 24rpx; padding: 24rpx; margin-bottom: 20rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.04); }
-.label { font-size: 26rpx; color: #94A3B8; display: block; margin-bottom: 10rpx; font-weight: 500; }
+.card { background: var(--card); border-radius: 24rpx; padding: 24rpx; margin-bottom: 20rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.04); }
+.label { font-size: 26rpx; color: var(--muted); display: block; margin-bottom: 10rpx; font-weight: 500; }
 
 /* 金额 */
 .amount-row { display: flex; align-items: center; }
@@ -17,13 +17,13 @@
 .amount-input { font-size: 44rpx; font-weight: 800; flex: 1; height: 64rpx; }
 
 /* 选择器 */
-.picker { display: flex; justify-content: space-between; align-items: center; font-size: 30rpx; padding: 8rpx 0; color: #1E293B; }
-.arrow { font-size: 32rpx; color: #CBD5E1; }
-.placeholder { color: #CBD5E1; }
+.picker { display: flex; justify-content: space-between; align-items: center; font-size: 30rpx; padding: 8rpx 0; color: var(--text); }
+.arrow { font-size: 32rpx; color: var(--faint); }
+.placeholder { color: var(--faint); }
 
 /* 子分类网格 */
 .sub-grid { display: flex; flex-wrap: wrap; gap: 12rpx; }
-.sub-item { padding: 12rpx 22rpx; border-radius: 14rpx; font-size: 26rpx; background: #F1F5F9; color: #64748B; font-weight: 500; transition: all 0.15s; }
+.sub-item { padding: 12rpx 22rpx; border-radius: 14rpx; font-size: 26rpx; background: var(--soft); color: var(--sub); font-weight: 500; transition: all 0.15s; }
 .sub-item.sub-active { background: #FF6B35; color: #fff; box-shadow: 0 2rpx 8rpx rgba(255,107,53,0.3); }
 
 /* 备注 */

@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills } from '../../utils/storage'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, usingRealCloud } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
+import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
+import type { ThemePref } from '../../utils/theme'
 import './index.scss'
 
 const THIS_MONTH = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
@@ -22,6 +24,19 @@ const catEmoji: Record<string, string> = {
 }
 
 export default function Index(): JSX.Element {
+  const dark = useThemeDark()
+  const [themePref, setThemePrefState] = useState<ThemePref>(getThemePref())
+
+  // v0.7.0 外观切换：跟随系统 / 始终浅色 / 始终深色（选一次永久记住）
+  function pickTheme(): void {
+    Taro.showActionSheet({ itemList: THEME_PREFS.map((p) => p.label) })
+      .then((res) => {
+        const p = THEME_PREFS[res.tapIndex].key
+        setThemePref(p)
+        setThemePrefState(p)
+      })
+      .catch(() => { /* 用户取消 */ })
+  }
   const [month, setMonth] = useState(THIS_MONTH)
   const [exp, setExp] = useState(0)
   const [inc, setInc] = useState(0)
@@ -130,7 +145,7 @@ export default function Index(): JSX.Element {
   const budgetColor = over ? '#EF4444' : pct >= 80 ? '#F59E0B' : '#10B981'
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* ====== 顶栏 ====== */}
       <View className='topbar'>
         <Text className='topbar-brand'>每日小记</Text>
@@ -244,7 +259,10 @@ export default function Index(): JSX.Element {
         )}
       </View>
 
-      {/* 云同步 & 清除数据 */}
+      {/* 外观 & 云同步 & 清除数据 */}
+      <View className='clear-btn' onClick={pickTheme}>
+        <Text className='clear-text'>🌙 外观 · {THEME_PREFS.find((p) => p.key === themePref)?.label}{themePref === 'system' && dark ? '（当前深色）' : ''}</Text>
+      </View>
       <View className='clear-btn' onClick={openCloud}>
         <Text className='clear-text'>☁️ 云同步 · 同步码：{formatOwnerId(ownerId || getOwnerId())}</Text>
       </View>
@@ -257,20 +275,20 @@ export default function Index(): JSX.Element {
         <View className='modal' onClick={() => setShowCloud(false)}>
           <View className='modal-box' onClick={(e) => e.stopPropagation()}>
             <Text className='modal-title'>☁️ 云同步</Text>
-            <Text style='font-size:24rpx;color:#64748B;display:block;margin-bottom:16rpx'>
+            <Text style='font-size:24rpx;color:var(--sub);display:block;margin-bottom:16rpx'>
               {usingRealCloud() ? '已连接云环境，同码设备共享一本账' : '未连接云环境，当前为本地模拟云'}
             </Text>
 
-            <Text style='font-size:26rpx;color:#334155;font-weight:600;display:block;margin-bottom:8rpx'>我的同步码</Text>
+            <Text style='font-size:26rpx;color:var(--text);font-weight:600;display:block;margin-bottom:8rpx'>我的同步码</Text>
             <View style='display:flex;align-items:center;gap:16rpx;margin-bottom:24rpx'>
               <Text style='font-size:32rpx;font-weight:700;color:#FF6B35;letter-spacing:2rpx'>{formatOwnerId(ownerId)}</Text>
               <View className='btn btn-ok' style='height:56rpx;padding:0 24rpx' onClick={copyOwnerId}><Text style='color:#fff;font-size:24rpx'>复制</Text></View>
             </View>
-            <Text style='font-size:22rpx;color:#94A3B8;display:block;margin-bottom:24rpx'>
+            <Text style='font-size:22rpx;color:var(--muted);display:block;margin-bottom:24rpx'>
               在电脑桌面端输入同一个码，手机和电脑就同步同一本账；别人用小程序会自动分到各自的账本，互相看不到
             </Text>
 
-            <Text style='font-size:26rpx;color:#334155;font-weight:600;display:block;margin-bottom:8rpx'>输入桌面端的码，加入同一本账</Text>
+            <Text style='font-size:26rpx;color:var(--text);font-weight:600;display:block;margin-bottom:8rpx'>输入桌面端的码，加入同一本账</Text>
             <View className='input-wrap'>
               <Input className='input' placeholder='如：ABCD-EFGH-JKMN' value={joinInput} onInput={(e) => setJoinInput(e.detail.value)} maxlength={16} />
             </View>

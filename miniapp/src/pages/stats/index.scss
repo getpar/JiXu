@@ -1,38 +1,38 @@
-.wrap { padding: 24rpx; padding-bottom: 100rpx; }
+.wrap { padding: 24rpx; padding-bottom: 100rpx; background: var(--bg); min-height: 100vh; }
 
 /* ====== 类型切换 ====== */
 .type-switch {
   display: flex; gap: 16rpx; margin-bottom: 20rpx;
-  background: #F1F5F9; border-radius: 18rpx; padding: 6rpx;
+  background: var(--soft); border-radius: 18rpx; padding: 6rpx;
 }
 .type-btn {
   flex: 1; text-align: center; padding: 16rpx; border-radius: 14rpx;
-  font-size: 28rpx; color: #94A3B8; font-weight: 500;
+  font-size: 28rpx; color: var(--muted); font-weight: 500;
 }
 .type-btn.active.expense { background: #EF4444; color: #fff; font-weight: 700; box-shadow: 0 2rpx 8rpx rgba(239,68,68,0.25); }
 .type-btn.active.income  { background: #10B981; color: #fff; font-weight: 700; box-shadow: 0 2rpx 8rpx rgba(16,185,129,0.25); }
 
 /* ====== 卡片 ====== */
 .card {
-  background: #fff; border-radius: 28rpx; padding: 24rpx 28rpx;
+  background: var(--card); border-radius: 28rpx; padding: 24rpx 28rpx;
   margin-bottom: 20rpx; box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04);
 }
 
 /* ====== 合计卡片 ====== */
 .total-card { text-align: center; }
-.total-label { font-size: 26rpx; color: #94A3B8; font-weight: 500; }
+.total-label { font-size: 26rpx; color: var(--muted); font-weight: 500; }
 .total-value { font-size: 56rpx; font-weight: 800; display: block; margin: 8rpx 0; letter-spacing: -2rpx; }
 .total-meta { display: flex; justify-content: center; gap: 16rpx; }
-.total-sub { font-size: 24rpx; color: #94A3B8; }
+.total-sub { font-size: 24rpx; color: var(--muted); }
 
 /* ====== 分区标题 ====== */
-.section-title { font-size: 28rpx; font-weight: 700; display: block; margin-bottom: 20rpx; color: #1E293B; }
+.section-title { font-size: 28rpx; font-weight: 700; display: block; margin-bottom: 20rpx; color: var(--text); }
 
 /* ====== 空态 ====== */
 .empty-state { text-align: center; padding: 80rpx 32rpx; }
 .empty-icon { font-size: 64rpx; display: block; margin-bottom: 16rpx; }
-.empty-text { font-size: 28rpx; color: #94A3B8; display: block; }
-.empty-hint { font-size: 24rpx; color: #CBD5E1; display: block; margin-top: 8rpx; }
+.empty-text { font-size: 28rpx; color: var(--muted); display: block; }
+.empty-hint { font-size: 24rpx; color: var(--faint); display: block; margin-top: 8rpx; }
 
 /* ====== 柱状图 ====== */
 .bar-chart {
@@ -45,7 +45,7 @@
   gap: 8rpx;
 }
 .bar-val {
-  font-size: 20rpx; color: #64748B; font-weight: 600;
+  font-size: 20rpx; color: var(--sub); font-weight: 600;
   white-space: nowrap; flex-shrink: 0;
 }
 .bar-bar {
@@ -54,7 +54,7 @@
   flex-shrink: 1;
 }
 .bar-label {
-  font-size: 20rpx; color: #94A3B8; flex-shrink: 0;
+  font-size: 20rpx; color: var(--muted); flex-shrink: 0;
   white-space: nowrap; margin-top: 4rpx;
 }
 
@@ -67,11 +67,11 @@
 }
 .pct-left { display: flex; align-items: center; gap: 10rpx; }
 .pct-dot { width: 14rpx; height: 14rpx; border-radius: 4rpx; flex-shrink: 0; }
-.pct-name { font-size: 26rpx; color: #1E293B; font-weight: 500; }
+.pct-name { font-size: 26rpx; color: var(--text); font-weight: 500; }
 .pct-right { display: flex; align-items: baseline; gap: 10rpx; }
-.pct-amount { font-size: 26rpx; color: #1E293B; font-weight: 600; }
-.pct-num { font-size: 24rpx; color: #94A3B8; }
-.pct-bar { height: 14rpx; background: #F1F5F9; border-radius: 7rpx; overflow: hidden; }
+.pct-amount { font-size: 26rpx; color: var(--text); font-weight: 600; }
+.pct-num { font-size: 24rpx; color: var(--muted); }
+.pct-bar { height: 14rpx; background: var(--soft); border-radius: 7rpx; overflow: hidden; }
 .pct-fill { height: 100%; border-radius: 7rpx; transition: width 0.4s ease; }
 
 /* ====== 每日趋势图 ====== */
@@ -85,7 +85,7 @@
   gap: 6rpx;
 }
 .trend-val {
-  font-size: 18rpx; color: #94A3B8; font-weight: 500;
+  font-size: 18rpx; color: var(--muted); font-weight: 500;
   white-space: nowrap; flex-shrink: 0;
 }
 .trend-bar {
@@ -95,7 +95,7 @@
   flex-shrink: 1;
 }
 .trend-date {
-  font-size: 18rpx; color: #CBD5E1; flex-shrink: 0;
+  font-size: 18rpx; color: var(--faint); flex-shrink: 0;
   white-space: nowrap; margin-top: 2rpx;
 }
 

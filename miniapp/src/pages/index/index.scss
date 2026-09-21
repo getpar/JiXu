@@ -1,4 +1,4 @@
-.wrap { padding: 0 24rpx 120rpx; background: #F1F5F9; min-height: 100vh; }
+.wrap { padding: 0 24rpx 120rpx; background: var(--bg); min-height: 100vh; }
 
 /* ====== 顶栏 ====== */
 .topbar {
@@ -10,24 +10,24 @@
 .topbar-brand {
   font-size: 36rpx;
   font-weight: 800;
-  color: #1E293B;
+  color: var(--text);
 }
 .topbar-month {
   display: flex;
   align-items: center;
   gap: 8rpx;
   font-size: 26rpx;
-  color: #64748B;
-  background: #FFFFFF;
+  color: var(--sub);
+  background: var(--card);
   padding: 12rpx 24rpx;
   border-radius: 20rpx;
   box-shadow: 0 1rpx 4rpx rgba(0,0,0,0.04);
 }
-.topbar-arrow { font-size: 16rpx; color: #94A3B8; }
+.topbar-arrow { font-size: 16rpx; color: var(--muted); }
 
 /* ====== 结余卡片 ====== */
 .balance-card {
-  background: #FFFFFF;
+  background: var(--card);
   border-radius: 28rpx;
   padding: 32rpx 28rpx 24rpx;
   margin-bottom: 16rpx;
@@ -36,7 +36,7 @@
 }
 .balance-label {
   font-size: 26rpx;
-  color: #94A3B8;
+  color: var(--muted);
   font-weight: 500;
 }
 .balance-value {
@@ -68,17 +68,17 @@
 .balance-dot-inc { background: #10B981; }
 .balance-item-label {
   font-size: 26rpx;
-  color: #94A3B8;
+  color: var(--muted);
 }
 .balance-item-val {
   font-size: 28rpx;
   font-weight: 600;
-  color: #1E293B;
+  color: var(--text);
 }
 
 /* ====== 预算卡片 ====== */
 .budget-card {
-  background: #FFFFFF;
+  background: var(--card);
   border-radius: 28rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 16rpx;
@@ -93,7 +93,7 @@
 .budget-title {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1E293B;
+  color: var(--text);
 }
 .budget-tag {
   padding: 6rpx 16rpx;
@@ -101,7 +101,7 @@
 }
 .budget-bar {
   height: 12rpx;
-  background: #F1F5F9;
+  background: var(--soft);
   border-radius: 6rpx;
   overflow: hidden;
   margin-bottom: 10rpx;
@@ -116,14 +116,14 @@
 }
 .budget-used, .budget-total {
   font-size: 24rpx;
-  color: #94A3B8;
+  color: var(--muted);
 }
 
 /* ====== 快捷操作 ====== */
 .actions {
   display: flex;
   flex-wrap: wrap;
-  background: #FFFFFF;
+  background: var(--card);
   border-radius: 28rpx;
   padding: 28rpx 8rpx 8rpx;
   margin-bottom: 16rpx;
@@ -148,19 +148,19 @@
 }
 .action-add { background: #FFF0E8; }
 .action-budget { background: #FFF7ED; }
-.action-cat { background: #F1F5F9; }
-.action-stats { background: #EEF2FF; }
+.action-cat { background: var(--soft); }
+.action-stats { background: var(--soft); }
 .action-recur { background: #FFF0E8; }
 .action-todo { background: #FEF2F2; }
 .action-text {
   font-size: 24rpx;
-  color: #64748B;
+  color: var(--sub);
   font-weight: 500;
 }
 
 /* ====== 记录区域 ====== */
 .section {
-  background: #FFFFFF;
+  background: var(--card);
   border-radius: 28rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 16rpx;
@@ -171,13 +171,13 @@
   justify-content: space-between;
   align-items: center;
   padding-bottom: 18rpx;
-  border-bottom: 2rpx solid #F1F5F9;
+  border-bottom: 2rpx solid var(--soft);
   margin-bottom: 4rpx;
 }
 .section-title {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1E293B;
+  color: var(--text);
 }
 .section-more {
   font-size: 26rpx;
@@ -190,7 +190,7 @@
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 0;
-  border-bottom: 2rpx solid #F8FAFC;
+  border-bottom: 2rpx solid var(--soft);
 }
 .record-card.last { border-bottom: none; }
 .record-icon {
@@ -213,7 +213,7 @@
 .record-cat {
   font-size: 28rpx;
   font-weight: 600;
-  color: #1E293B;
+  color: var(--text);
 }
 .record-amt {
   font-size: 30rpx;
@@ -228,11 +228,11 @@
 }
 .record-date {
   font-size: 24rpx;
-  color: #94A3B8;
+  color: var(--muted);
 }
 .record-note {
   font-size: 24rpx;
-  color: #CBD5E1;
+  color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -244,7 +244,7 @@
 .empty {
   text-align: center;
   padding: 48rpx 0 16rpx;
-  color: #CBD5E1;
+  color: var(--faint);
 }
 .empty-icon { font-size: 52rpx; display: block; margin-bottom: 14rpx; }
 
@@ -254,7 +254,7 @@
 }
 .clear-text {
   font-size: 24rpx;
-  color: #CBD5E1;
+  color: var(--faint);
 }
 
 /* ====== 预算弹窗 ====== */
@@ -265,22 +265,22 @@
   z-index: 1000;
 }
 .modal-box {
-  background: #fff; border-radius: 28rpx; padding: 36rpx;
+  background: var(--card); border-radius: 28rpx; padding: 36rpx;
   width: 85%; max-width: 560rpx; box-sizing: border-box;
 }
 .modal-title {
   font-size: 34rpx; font-weight: 700; display: block;
-  margin-bottom: 24rpx; color: #1E293B;
+  margin-bottom: 24rpx; color: var(--text);
 }
 .input-wrap {
   display: flex; align-items: center;
   border: 4rpx solid #FF6B35; border-radius: 18rpx;
-  margin-bottom: 24rpx; padding: 0 24rpx; background: #FFFBF8;
+  margin-bottom: 24rpx; padding: 0 24rpx; background: var(--soft);
 }
 .input-prefix { font-size: 44rpx; font-weight: 700; color: #FF6B35; margin-right: 12rpx; }
 .input { font-size: 44rpx; font-weight: 700; flex: 1; height: 100rpx; line-height: 100rpx; }
 .modal-btns { display: flex; justify-content: flex-end; gap: 20rpx; }
 .btn { padding: 16rpx 40rpx; border-radius: 14rpx; font-size: 28rpx; text-align: center; }
-.btn-cancel { background: #F1F5F9; color: #64748B; }
+.btn-cancel { background: var(--soft); color: var(--sub); }
 .btn-ok { background: #FF6B35; }
 .btn-ok-text { color: #fff; font-weight: 600; }

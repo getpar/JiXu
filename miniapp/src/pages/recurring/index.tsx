@@ -6,12 +6,14 @@ import {
   toggleRecurringBill, executeRecurringBill, getMergedCategories, localDateStr,
 } from '../../utils/storage'
 import type { RecurringBill } from '../../utils/storage'
+import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 const cycleLabels: Record<string, string> = { daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' }
 const cycleTags: Record<string, string> = { daily: '☀️', weekly: '📆', monthly: '📅', yearly: '🎯' }
 
 export default function Recurring(): JSX.Element {
+  const dark = useThemeDark()
   const [bills, setBills] = useState<RecurringBill[]>([])
   const [showModal, setShowModal] = useState(false)
   const [categories, setCategories] = useState<any[]>([])
@@ -103,7 +105,7 @@ export default function Recurring(): JSX.Element {
   const subKeys  = subs.map((s: any) => s.key)
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 顶栏 */}
       <View className='top-bar'>
         <Text className='back-btn' onClick={() => Taro.navigateBack()}>← 返回</Text>
@@ -219,7 +221,7 @@ export default function Recurring(): JSX.Element {
               <Text className='form-label'>二级分类</Text>
               <Picker mode='selector' range={subNames} value={subKeys.indexOf(formSubKey)} onChange={(e) => setFormSubKey(subKeys[Number(e.detail.value)])}>
                 <View className='picker'>
-                  <Text style={formSubKey ? '' : 'color:#CBD5E1'}>
+                  <Text style={formSubKey ? '' : 'color:var(--faint)'}>
                     {formSubKey ? subs.find((s: any) => s.key === formSubKey)?.name : '选择小类'}
                   </Text>
                   <Text className='arrow'>▼</Text>

@@ -3,6 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, getDeletedRecords, localDateStr } from '../../utils/storage'
 import * as XLSX from 'xlsx'
+import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 function getMonth(): string {
@@ -11,6 +12,7 @@ function getMonth(): string {
 }
 
 export default function History(): JSX.Element {
+  const dark = useThemeDark()
   const [records, setRecords] = useState<any[]>([])
   const [keyword, setKeyword] = useState('')
   const [month, setMonth] = useState('')
@@ -120,7 +122,7 @@ export default function History(): JSX.Element {
   }
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 筛选栏 */}
       <View className='filter-row'>
         <Picker mode='selector' range={monthOptions} onChange={(e) => { const v = Number(e.detail.value); setMonth(v === 0 ? '' : monthOptions[v]) }}>

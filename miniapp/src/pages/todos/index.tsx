@@ -5,6 +5,7 @@ import {
   getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories, localDateStr,
 } from '../../utils/storage'
 import type { Todo } from '../../utils/storage'
+import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 const cycleLabels: Record<string, string> = { daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', once: '单次' }
@@ -13,6 +14,7 @@ const cycleTags: Record<string, string> = { daily: '☀️', weekly: '📆', mon
 function formatDate(d: string): string { return d.slice(5) }
 
 export default function Todos(): JSX.Element {
+  const dark = useThemeDark()
   const [todos, setTodos] = useState<Todo[]>([])
   const [showModal, setShowModal] = useState(false)
   const [categories, setCategories] = useState<any[]>([])
@@ -109,7 +111,7 @@ export default function Todos(): JSX.Element {
   const dueToday = undoneTodos.filter((t) => t.nextDate <= today)
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 顶栏 */}
       <View className='top-bar'>
         <Text className='back-btn' onClick={() => Taro.navigateBack()}>← 返回</Text>
@@ -236,7 +238,7 @@ export default function Todos(): JSX.Element {
               <View className='form-item'>
                 <Text className='form-label'>⏰ 具体时间（可选）</Text>
                 <Picker mode='time' value={fTime || '09:00'} onChange={(e) => setFTime(e.detail.value)}>
-                  <View className='picker'><Text style={fTime ? '' : 'color:#CBD5E1'}>{fTime || '不限'}</Text><Text className='arrow'>▼</Text></View>
+                  <View className='picker'><Text style={fTime ? '' : 'color:var(--faint)'}>{fTime || '不限'}</Text><Text className='arrow'>▼</Text></View>
                 </Picker>
               </View>
             )}
@@ -263,7 +265,7 @@ export default function Todos(): JSX.Element {
                   <Text className='form-label'>二级分类</Text>
                   <Picker mode='selector' range={subNames} value={subKeys.indexOf(fSubKey)} onChange={(e) => setFSubKey(subKeys[Number(e.detail.value)])}>
                     <View className='picker'>
-                      <Text style={fSubKey ? '' : 'color:#CBD5E1'}>{fSubKey ? subs.find((s: any) => s.key === fSubKey)?.name : '选择小类'}</Text>
+                      <Text style={fSubKey ? '' : 'color:var(--faint)'}>{fSubKey ? subs.find((s: any) => s.key === fSubKey)?.name : '选择小类'}</Text>
                       <Text className='arrow'>▼</Text>
                     </View>
                   </Picker>

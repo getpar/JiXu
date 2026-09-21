@@ -2,6 +2,7 @@ import { View, Text } from '@tarojs/components'
 import { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getDailyTrend } from '../../utils/storage'
+import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 function getMonth(): string {
@@ -28,6 +29,7 @@ function formatAmount(v: number): string {
 }
 
 export default function Stats(): JSX.Element {
+  const dark = useThemeDark()
   const [month] = useState(getMonth())
   const [type, setType] = useState<'expense' | 'income'>('expense')
   const [total, setTotal] = useState(0)
@@ -50,7 +52,7 @@ export default function Stats(): JSX.Element {
   const maxTrend = trend.length > 0 ? Math.max(...trend.map((d) => d.total), 1) : 1
 
   return (
-    <View className='wrap'>
+    <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* ---- 类型切换 ---- */}
       <View className='type-switch'>
         <View className={`type-btn ${type === 'expense' ? 'active expense' : ''}`} onClick={() => setType('expense')}><Text>支出</Text></View>
