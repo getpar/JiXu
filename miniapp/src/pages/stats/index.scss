@@ -99,6 +99,31 @@
   white-space: nowrap; margin-top: 2rpx;
 }
 
+/* ====== v0.7.5 月度对比 ====== */
+.month-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20rpx;
+}
+.month-mom { font-size: 24rpx; font-weight: 700; }
+.month-chart {
+  display: flex; align-items: flex-end; justify-content: space-around;
+  height: 260rpx; padding-top: 28rpx;
+}
+.month-col {
+  display: flex; flex-direction: column; align-items: center;
+  flex: 1; height: 100%; justify-content: flex-end;
+  gap: 8rpx;
+}
+.month-val { font-size: 20rpx; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.month-bar {
+  width: 44rpx; border-radius: 8rpx 8rpx 0 0;
+  background: var(--soft); min-height: 6rpx;
+  transition: height 0.4s ease;
+}
+.month-bar.current { background: linear-gradient(180deg, #FF6B35, #FF8555); }
+.month-label { font-size: 22rpx; color: var(--faint); white-space: nowrap; margin-top: 2rpx; }
+.month-label.current { color: #FF6B35; font-weight: 700; }
+
 /* ====== 颜色工具 ====== */
 .red  { color: #EF4444; }
 .green { color: #10B981; }

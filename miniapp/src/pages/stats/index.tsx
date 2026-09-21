@@ -10,6 +10,17 @@ function getMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+/** v0.7.5 近 n 个月列表（含本月，本地时区计算，1 月跨年安全） */
+function lastMonths(n: number): string[] {
+  const d = new Date()
+  const arr: string[] = []
+  for (let i = n - 1; i >= 0; i--) {
+    const t = new Date(d.getFullYear(), d.getMonth() - i, 1)
+    arr.push(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return arr
+}
+
 const catColors: Record<string, string> = {
   food: '#EF4444', transport: '#3B82F6', shopping: '#8B5CF6',
   housing: '#F97316', entertainment: '#10B981', medical: '#EC4899',
@@ -35,21 +46,32 @@ export default function Stats(): JSX.Element {
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<any[]>([])
   const [trend, setTrend] = useState<any[]>([])
+  const [months, setMonths] = useState<{ month: string; total: number }[]>([])
   const [, setTick] = useState(0)
 
   useEffect(() => { loadData() }, [month, type])
   useDidShow(() => { setTick((t) => t + 1); loadData() })
 
   async function loadData(): Promise<void> {
-    const [t, s, d] = await Promise.all([
+    const keys = lastMonths(6)
+    const [t, s, d, ms] = await Promise.all([
       getMonthTotal(month, type), getMonthStats(month, type), getDailyTrend(month, type),
+      Promise.all(keys.map((k) => getMonthTotal(k, type))),
     ])
     setTotal(t); setStats(s); setTrend(d)
+    setMonths(keys.map((k, i) => ({ month: k, total: ms[i] })))
   }
 
   // 柱状图最大值（用于算高度比例）
   const maxAmount = stats.length > 0 ? Math.max(...stats.map((s) => s.total), 1) : 1
   const maxTrend = trend.length > 0 ? Math.max(...trend.map((d) => d.total), 1) : 1
+
+  // v0.7.5 月度对比：本月 vs 上月涨跌幅
+  const maxMonth = months.length > 0 ? Math.max(...months.map((m) => m.total), 1) : 1
+  const hasMonthData = months.some((m) => m.total > 0)
+  const curM = months[months.length - 1]?.total || 0
+  const prevM = months[months.length - 2]?.total || 0
+  const momPct = prevM > 0 ? ((curM - prevM) / prevM) * 100 : null
 
   return (
     <View className={`wrap${dark ? ' theme-dark' : ''}`}>
@@ -140,6 +162,33 @@ export default function Stats(): JSX.Element {
             </View>
           )}
         </>
+      )}
+
+      {/* ====== v0.7.5 月度对比：近 6 个月柱状图（本月高亮，无数据时隐藏） ====== */}
+      {hasMonthData && (
+        <View className='card'>
+          <View className='month-head'>
+            <Text className='section-title' style={{ marginBottom: 0 }}>📅 月度对比</Text>
+            {momPct !== null && (
+              <Text className={`month-mom ${momPct > 0 ? 'red' : 'green'}`}>
+                较上月 {momPct > 0 ? '↑' : '↓'}{Math.abs(momPct).toFixed(0)}%
+              </Text>
+            )}
+          </View>
+          <View className='month-chart'>
+            {months.map((m, i) => {
+              const h = Math.max((m.total / maxMonth) * 100, 3)
+              const isCur = i === months.length - 1
+              return (
+                <View key={m.month} className='month-col'>
+                  <Text className='month-val'>¥{formatAmount(m.total)}</Text>
+                  <View className={`month-bar${isCur ? ' current' : ''}`} style={{ height: `${h}%` }} />
+                  <Text className={`month-label${isCur ? ' current' : ''}`}>{Number(m.month.slice(5))}月</Text>
+                </View>
+              )
+            })}
+          </View>
+        </View>
       )}
     </View>
   )
