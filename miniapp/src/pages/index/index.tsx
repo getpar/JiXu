@@ -1,7 +1,7 @@
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo, useEffect } from 'react'
-import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow } from '../../utils/storage'
+import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills } from '../../utils/storage'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, usingRealCloud } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
 import './index.scss'
@@ -59,6 +59,13 @@ export default function Index(): JSX.Element {
 
   useDidShow(() => {
     refresh()
+    // v0.6.9 到期的周期账单自动补记（纯手机用户与桌面端对齐），记完弹提示并刷新
+    checkAndExecuteDueBills().then((list) => {
+      if (list.length > 0) {
+        refresh()
+        Taro.showToast({ title: `已自动记录 ${list.length} 笔周期账单`, icon: 'none', duration: 2500 })
+      }
+    }).catch(() => { /* ignore */ })
     // 每次回到首页先和云端同步一次：桌面端记的账拉下来就地刷新
     syncNow().then((r) => { if (r.pulled > 0) refresh() }).catch(() => { /* 同步失败不影响本地查看 */ })
   })

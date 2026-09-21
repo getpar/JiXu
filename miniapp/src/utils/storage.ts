@@ -349,6 +349,18 @@ export async function toggleRecurringBill(id: string, active: boolean): Promise<
   saveRecurringBills((await getRecurringBills()).map((b) => (b.id === id ? { ...b, isActive: active } : b)))
 }
 
+/** 向后推一个周期（纯日期计算，手动/自动执行共用；v0.6.9 提取自 executeRecurringBill） */
+function advanceDate(current: string, cycle: RecurringBill['cycle']): string {
+  const next = new Date(current)
+  switch (cycle) {
+    case 'daily': next.setDate(next.getDate() + 1); break
+    case 'weekly': next.setDate(next.getDate() + 7); break
+    case 'monthly': next.setMonth(next.getMonth() + 1); break
+    case 'yearly': next.setFullYear(next.getFullYear() + 1); break
+  }
+  return localDateStr(next)
+}
+
 /** 执行周期账单：创建一笔记录，并自动更新下次日期 */
 export async function executeRecurringBill(id: string): Promise<void> {
   const bills = await getRecurringBills()
@@ -367,17 +379,41 @@ export async function executeRecurringBill(id: string): Promise<void> {
     date: localDateStr(),
   })
 
-  // 2. 计算下一个日期
-  const next = new Date(bill.nextDate)
-  switch (bill.cycle) {
-    case 'daily': next.setDate(next.getDate() + 1); break
-    case 'weekly': next.setDate(next.getDate() + 7); break
-    case 'monthly': next.setMonth(next.getMonth() + 1); break
-    case 'yearly': next.setFullYear(next.getFullYear() + 1); break
-  }
-  bill.nextDate = localDateStr(next)
+  // 2. 推算下一个周期
+  bill.nextDate = advanceDate(bill.nextDate, bill.cycle)
 
   saveRecurringBills(bills)
+}
+
+/** v0.6.9 周期账单自动执行（与桌面端 checkRecurringBills 对齐，纯手机用户到期不再漏记）：
+ * 进首页时检查到期账单 → 自动记一笔（日期=今天，备注 [周期]）→ 下次日期快进到今天之后；
+ * 隔几个月没打开也只补记 1 笔不重复记历史；未知周期防死循环护栏 */
+export async function checkAndExecuteDueBills(): Promise<{ name: string; amount: number }[]> {
+  const bills = await getRecurringBills()
+  const today = localDateStr()
+  const executed: { name: string; amount: number }[] = []
+  let changed = false
+  for (const bill of bills) {
+    if (!bill.isActive || bill.nextDate > today) continue
+    await addRecord({
+      type: bill.type, amount: bill.amount,
+      categoryKey: bill.categoryKey, categoryName: bill.categoryName,
+      subcategoryKey: bill.subcategoryKey, subcategoryName: bill.subcategoryName,
+      note: `[周期] ${bill.note || ''}`, date: today,
+    })
+    let next = advanceDate(bill.nextDate, bill.cycle)
+    let guard = 0
+    while (next <= today && guard++ < 2000) {
+      const prev = next
+      next = advanceDate(next, bill.cycle)
+      if (next === prev) break // 防死循环
+    }
+    bill.nextDate = next
+    changed = true
+    executed.push({ name: bill.subcategoryName || bill.categoryName, amount: bill.amount })
+  }
+  if (changed) saveRecurringBills(bills)
+  return executed
 }
 
 // ========== 待办事项 ==========
