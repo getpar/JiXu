@@ -116,7 +116,27 @@ export default function History(): JSX.Element {
     const path = `${Taro.env.USER_DATA_PATH}/每日小记_${localDateStr()}.xlsx`
     fs.writeFile({
       filePath: path, data: new Uint8Array(wbout).buffer as any,
-      success: () => { Taro.openDocument({ filePath: path, showMenu: true }) },
+      success: () => {
+        // v0.7.4 导出从“只能预览”升级为可选发送：发给好友/文件传输助手后可在聊天里保存到手机
+        Taro.showActionSheet({
+          itemList: ['发送给微信好友（也可发给自己保存）', '本机预览'],
+          success: (res) => {
+            if (res.tapIndex === 0) {
+              Taro.shareFileMessage({
+                filePath: path, fileName: `每日小记_${localDateStr()}.xlsx`,
+                fail: (e) => {
+                  // 用户主动取消不报错；老基础库不支持时提示升级微信
+                  if (e?.errMsg && e.errMsg.indexOf('cancel') >= 0) return
+                  Taro.showToast({ title: '发送失败，请升级微信后重试', icon: 'none' })
+                },
+              })
+            } else {
+              Taro.openDocument({ filePath: path, showMenu: true })
+            }
+          },
+          fail: () => { Taro.openDocument({ filePath: path, showMenu: true }) },
+        })
+      },
       fail: () => { Taro.showToast({ title: '导出失败', icon: 'none' }) },
     })
   }
