@@ -25,6 +25,32 @@
 }
 .topbar-arrow { font-size: 16rpx; color: var(--muted); }
 
+/* ====== v0.7.2 待办到期强提醒横幅 ====== */
+.due-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--card);
+  border: 2rpx solid #F59E0B;
+  border-left: 10rpx solid #F59E0B;
+  border-radius: 20rpx;
+  padding: 22rpx 24rpx;
+  margin-bottom: 20rpx;
+}
+.due-banner-text {
+  font-size: 26rpx;
+  color: var(--text);
+  font-weight: 600;
+  flex: 1;
+}
+.due-banner-go {
+  font-size: 24rpx;
+  color: #F59E0B;
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-left: 16rpx;
+}
+
 /* ====== 结余卡片 ====== */
 .balance-card {
   background: var(--card);

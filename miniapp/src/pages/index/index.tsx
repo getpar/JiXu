@@ -1,7 +1,7 @@
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo, useEffect } from 'react'
-import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills } from '../../utils/storage'
+import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, localDateStr } from '../../utils/storage'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
@@ -50,6 +50,9 @@ export default function Index(): JSX.Element {
   const [joinInput, setJoinInput] = useState('')
   // v0.7.1 云端真实连通自检结果（打开弹窗时异步检测，不再假确认）
   const [cloudTest, setCloudTest] = useState<{ real: boolean; detail: string } | null>(null)
+  // v0.7.2 方案B App 内强提醒：今天到期/已逾期未完成的待办
+  const [dueInfo, setDueInfo] = useState({ due: 0, overdue: 0 })
+  const dueTotal = dueInfo.due + dueInfo.overdue
 
   const isCurrentMonth = month === THIS_MONTH
 
@@ -85,6 +88,21 @@ export default function Index(): JSX.Element {
     }).catch(() => { /* ignore */ })
     // 每次回到首页先和云端同步一次：桌面端记的账拉下来就地刷新
     syncNow().then((r) => { if (r.pulled > 0) refresh() }).catch(() => { /* 同步失败不影响本地查看 */ })
+    // v0.7.2 方案B：待办到期红点角标 + 首页横幅数据；每天首次打开额外 toast 提一嘴（当天不重复）
+    getDueSummary().then(({ due, overdue }) => {
+      setDueInfo({ due, overdue })
+      const n = due + overdue
+      if (n > 0) {
+        Taro.setTabBarBadge({ index: 0, text: n > 99 ? '99+' : String(n) }).catch(() => { /* 非 tabBar 环境忽略 */ })
+        const today = localDateStr()
+        if (Taro.getStorageSync('last_due_remind') !== today) {
+          Taro.setStorageSync('last_due_remind', today)
+          Taro.showToast({ title: `🔔 今天有 ${n} 个待办${overdue > 0 ? `（含 ${overdue} 个已逾期）` : ''}`, icon: 'none', duration: 2500 })
+        }
+      } else {
+        Taro.removeTabBarBadge({ index: 0 }).catch(() => { /* 非 tabBar 环境忽略 */ })
+      }
+    }).catch(() => { /* ignore */ })
   })
   useEffect(() => { refresh() }, [month])
   Taro.eventCenter.on('dataChanged', refresh)
@@ -160,6 +178,16 @@ export default function Index(): JSX.Element {
           </View>
         </Picker>
       </View>
+
+      {/* ====== v0.7.2 待办到期强提醒横幅（点击直达待办页） ====== */}
+      {dueTotal > 0 && (
+        <View className='due-banner' onClick={() => Taro.navigateTo({ url: '/pages/todos/index' })}>
+          <Text className='due-banner-text'>
+            🔔 今天有 {dueTotal} 个待办要处理{dueInfo.overdue > 0 ? `（含 ${dueInfo.overdue} 个已逾期）` : ''}
+          </Text>
+          <Text className='due-banner-go'>去处理 ›</Text>
+        </View>
+      )}
 
       {/* ====== 结余卡片 ====== */}
       <View className='balance-card'>

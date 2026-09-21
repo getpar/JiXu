@@ -445,6 +445,20 @@ function saveTodos(list: Todo[]): void {
   Taro.setStorageSync('todos', JSON.stringify(list))
 }
 
+/** v0.7.2 方案B App 内强提醒：统计今天到期/已逾期未完成的待办数（周期账单已自动补记，无需提醒） */
+export async function getDueSummary(): Promise<{ due: number; overdue: number }> {
+  const todos = await getTodos()
+  const today = localDateStr()
+  let due = 0
+  let overdue = 0
+  for (const t of todos) {
+    if (!t.isActive || t.completedDates.includes(today)) continue
+    if (t.nextDate === today) due++
+    else if (t.nextDate < today) overdue++
+  }
+  return { due, overdue }
+}
+
 export async function addTodo(todo: Omit<Todo, 'id' | 'completedDates' | 'createdAt'>): Promise<void> {
   const list = await getTodos()
   list.unshift({
