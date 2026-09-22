@@ -124,14 +124,31 @@ function createDesktopDevice(cloud, ownerId) {
           if ((local[i].deleted || 0) > 0 && recordKey(local[i]) === k) { local.splice(i, 1); left--; purged++ }
         }
       })
-      // 注销核销聚合：有效数 = 原始数 - 被注销数
+      // 注销核销聚合（v0.8.5b 时间戳感知）
       const cancelRec = new Map()
       const cancelTomb = new Map()
       const cancelRev = new Map()
       for (const p of cloudPurges) {
-        cancelRec.set(p.targetKey, (cancelRec.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
-        cancelTomb.set(p.targetKey, (cancelTomb.get(p.targetKey) || 0) + Math.max(0, p.cancelTomb || 0))
-        cancelRev.set(p.targetKey, (cancelRev.get(p.targetKey) || 0) + Math.max(0, p.cancelRev || 0))
+        const k = p.targetKey
+        const pTime = p.updatedAt || 0
+        const wantRec = Math.max(0, p.cancelRec || 0)
+        const wantTomb = Math.max(0, p.cancelTomb || 0)
+        const wantRev = Math.max(0, p.cancelRev || 0)
+        const alreadyRec = cancelRec.get(k) || 0
+        const alreadyTomb = cancelTomb.get(k) || 0
+        const alreadyRev = cancelRev.get(k) || 0
+        if (wantRec > 0) {
+          const recBefore = cloudRecs.filter(r => recordKey(r) === k && (r.updatedAt || 0) < pTime).length
+          cancelRec.set(k, alreadyRec + Math.min(wantRec, Math.max(0, recBefore - alreadyRec)))
+        }
+        if (wantTomb > 0) {
+          const tombBefore = cloudTombs.filter(t => t.targetKey === k && (t.updatedAt || 0) < pTime).length
+          cancelTomb.set(k, alreadyTomb + Math.min(wantTomb, Math.max(0, tombBefore - alreadyTomb)))
+        }
+        if (wantRev > 0) {
+          const revBefore = cloudRevs.filter(v => v.targetKey === k && (v.updatedAt || 0) < pTime).length
+          cancelRev.set(k, alreadyRev + Math.min(wantRev, Math.max(0, revBefore - alreadyRev)))
+        }
       }
       const cloudRecCounts = countBy(cloudRecs.map(recordKey))
       const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
@@ -662,6 +679,25 @@ async function main() {
   dr = await desktop.performSync(); mr = await miniapp.sync()
   assert(dr.uploaded === 0 && dr.downloaded === 0 && dr.revived === 0 && mr.pushed === 0 && mr.pulled === 0,
     '收敛：小程序端彻底删除全链路走完后再同步 0 进 0 出')
+
+  console.log('\n【场景⑲】v0.8.5b 旧注销凭条不误杀之后新加的同号账（时间戳感知回归）')
+  // 场景：桌面彻底删除了一笔 ¥50 午餐 → 之后用户重新记了一笔完全相同指纹的 ¥50 午餐
+  const lunchB = (r) => r.amount === 50 && r.date === '2026-09-25'
+  const rec50 = { type: 'expense', amount: 50, categoryKey: 'food', categoryName: '餐饮饮食', subcategoryKey: 'lunch', subcategoryName: '午餐', note: '', date: '2026-09-25' }
+  desktop.appAdd(rec50)
+  await desktop.performSync() // 上传 ¥50
+  desktop.appDelete(lunchB) // 删除
+  await desktop.performSync() // 上传凭证
+  desktop.appPurge(lunchB) // 彻底删除 → 产生 purge
+  await desktop.performSync() // 上传 purge
+  // 现在云端有：¥50 记录 + ¥50 凭证 + ¥50 purge（purge 核销了记录和凭证）
+  // 用户重新记一笔同键 ¥50
+  desktop.appAdd(rec50)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 1, `新 ¥50 上传成功（uploaded=${dr.uploaded}）`)
+  mr = await miniapp.sync()
+  assert(mr.ok && miniapp.getLocal().some((r) => lunchB(r) && !(r.deleted > 0)),
+    '小程序能拉到新 ¥50（旧 purge 不误杀后加的同号账）')
 
   // ---- 汇总 ----
 

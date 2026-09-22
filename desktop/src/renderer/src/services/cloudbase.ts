@@ -423,14 +423,31 @@ export async function performSync(
       toPurge.push({ parts, count })
     })
 
-    // 注销核销聚合：账单/凭证/凭条的"有效数" = 原始数 - 被注销数
+    // 注销核销聚合（v0.8.5b 时间戳感知：凭条只能核销在它之前上传的记录，不能误杀之后新加的同号账）
     const cancelRec = new Map<string, number>()
     const cancelTomb = new Map<string, number>()
     const cancelRev = new Map<string, number>()
     for (const p of cloudPurges) {
-      cancelRec.set(p.targetKey, (cancelRec.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
-      cancelTomb.set(p.targetKey, (cancelTomb.get(p.targetKey) || 0) + Math.max(0, p.cancelTomb || 0))
-      cancelRev.set(p.targetKey, (cancelRev.get(p.targetKey) || 0) + Math.max(0, p.cancelRev || 0))
+      const k = p.targetKey
+      const pTime = p.updatedAt || 0
+      const wantRec = Math.max(0, p.cancelRec || 0)
+      const wantTomb = Math.max(0, p.cancelTomb || 0)
+      const wantRev = Math.max(0, p.cancelRev || 0)
+      const alreadyRec = cancelRec.get(k) || 0
+      const alreadyTomb = cancelTomb.get(k) || 0
+      const alreadyRev = cancelRev.get(k) || 0
+      if (wantRec > 0) {
+        const recBefore = cloudRecs.filter(r => recordKeyOf(r) === k && (r.updatedAt || 0) < pTime).length
+        cancelRec.set(k, alreadyRec + Math.min(wantRec, Math.max(0, recBefore - alreadyRec)))
+      }
+      if (wantTomb > 0) {
+        const tombBefore = cloudTombs.filter(t => t.targetKey === k && (t.updatedAt || 0) < pTime).length
+        cancelTomb.set(k, alreadyTomb + Math.min(wantTomb, Math.max(0, tombBefore - alreadyTomb)))
+      }
+      if (wantRev > 0) {
+        const revBefore = cloudRevs.filter(v => v.targetKey === k && (v.updatedAt || 0) < pTime).length
+        cancelRev.set(k, alreadyRev + Math.min(wantRev, Math.max(0, revBefore - alreadyRev)))
+      }
     }
     const cloudRecCounts = countBy(cloudRecs.map(recordKeyOf))
     const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
