@@ -82,7 +82,7 @@ export default function Categories(): JSX.Element {
     <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 顶栏 */}
       <View className='header-row'>
-        <Text className='page-title'>分类管理</Text>
+        <Text className='page-title'>🏷️ 分类管理</Text>
         <Text className='add-major-btn' onClick={() => setShowNewMajor(true)}>+ 新大类</Text>
       </View>
 
@@ -139,7 +139,7 @@ export default function Categories(): JSX.Element {
         </View>
       ))}
 
-      <View className='tip'><Text>带 × 号的可删除（自定义分类），其余为默认分类不可删除</Text></View>
+      <View className='tip'><Text>💡 带 × 号的可删除（自定义分类），其余为默认分类不可删除</Text></View>
     </View>
   )
 }

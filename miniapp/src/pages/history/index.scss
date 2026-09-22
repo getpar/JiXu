@@ -17,7 +17,7 @@
 .summary-item.green { color: #10B981; font-weight: 600; }
 
 /* 记录卡片 */
-.record { background: var(--card); border-radius: 20rpx; padding: 22rpx 24rpx; margin-bottom: 14rpx; border: 1rpx solid var(--line); }
+.record { background: var(--card); border-radius: 20rpx; padding: 22rpx 24rpx; margin-bottom: 14rpx; box-shadow: 0 1rpx 8rpx rgba(0,0,0,0.03); }
 .record-main { display: flex; justify-content: space-between; align-items: center; }
 .record-info { flex: 1; overflow: hidden; }
 .record-tags { display: flex; margin-bottom: 6rpx; }
@@ -32,7 +32,7 @@
 .empty { text-align: center; padding: 100rpx 0; color: var(--faint); font-size: 28rpx; }
 
 /* v0.6.8 回收站折叠区 */
-.trash { margin-top: 24rpx; background: var(--card); border-radius: 20rpx; overflow: hidden; border: 1rpx solid var(--line); }
+.trash { margin-top: 24rpx; background: var(--card); border-radius: 20rpx; overflow: hidden; box-shadow: 0 1rpx 8rpx rgba(0,0,0,0.03); }
 .trash-head { display: flex; justify-content: space-between; align-items: center; padding: 22rpx 24rpx; }
 .trash-title { font-size: 28rpx; color: var(--muted); font-weight: 600; }
 .trash-arrow { font-size: 24rpx; color: var(--faint); }
@@ -44,7 +44,7 @@
 
 /* 编辑弹窗 */
 .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: var(--card); border-radius: 24rpx; padding: 32rpx; width: 88%; max-width: 600rpx; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
+.modal-box { background: var(--card); border-radius: 28rpx; padding: 32rpx; width: 88%; max-width: 600rpx; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
 .modal-title { font-size: 34rpx; font-weight: 700; display: block; margin-bottom: 24rpx; color: var(--text); }
 .type-switch { display: flex; gap: 16rpx; margin-bottom: 20rpx; }
 .type-btn { flex: 1; text-align: center; padding: 18rpx; border-radius: 14rpx; font-size: 28rpx; background: var(--soft); color: var(--muted); font-weight: 500; }
@@ -63,7 +63,7 @@
 .modal-btns { display: flex; justify-content: flex-end; gap: 20rpx; margin-top: 20rpx; }
 .btn { padding: 16rpx 40rpx; border-radius: 14rpx; font-size: 28rpx; text-align: center; }
 .btn-cancel { background: var(--soft); color: var(--sub); }
-.btn-ok { background: #FF6B35; }
+.btn-ok { background: linear-gradient(135deg, #FF6B35, #FF8555); }
 .btn-ok-text { color: #fff; font-weight: 600; }
 
 /* v0.8.1 拍照凭证角标 */

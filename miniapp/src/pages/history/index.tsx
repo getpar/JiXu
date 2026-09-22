@@ -188,7 +188,7 @@ export default function History(): JSX.Element {
                 <Text className='tag orange'>{r.categoryName}</Text>
                 <Text className='tag'>{r.subcategoryName}</Text>
                 {r.photo ? (
-                  <Text className='tag photo-tag' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>凭证</Text>
+                  <Text className='tag photo-tag' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>📷 凭证</Text>
                 ) : null}
               </View>
               <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
@@ -208,7 +208,7 @@ export default function History(): JSX.Element {
       {deletedList.length > 0 && (
         <View className='trash'>
           <View className='trash-head' onClick={() => setTrashOpen(!trashOpen)}>
-            <Text className='trash-title'>已删除 ({deletedList.length})</Text>
+            <Text className='trash-title'>🗑 已删除 ({deletedList.length})</Text>
             <Text className='trash-arrow'>{trashOpen ? '收起 ▴' : '展开 ▾'}</Text>
           </View>
           {trashOpen && (

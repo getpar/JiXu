@@ -103,7 +103,7 @@ export default function Index(): JSX.Element {
         const today = localDateStr()
         if (Taro.getStorageSync('last_due_remind') !== today) {
           Taro.setStorageSync('last_due_remind', today)
-          Taro.showToast({ title: `今天有 ${n} 个待办${overdue > 0 ? `（含 ${overdue} 个已逾期）` : ''}`, icon: 'none', duration: 2500 })
+          Taro.showToast({ title: `🔔 今天有 ${n} 个待办${overdue > 0 ? `（含 ${overdue} 个已逾期）` : ''}`, icon: 'none', duration: 2500 })
         }
       } else {
         Taro.removeTabBarBadge({ index: 0 }).catch(() => { /* 非 tabBar 环境忽略 */ })
@@ -189,7 +189,7 @@ export default function Index(): JSX.Element {
       {dueTotal > 0 && (
         <View className='due-banner' onClick={() => Taro.navigateTo({ url: '/pages/todos/index' })}>
           <Text className='due-banner-text'>
-            今天有 {dueTotal} 个待办要处理{dueInfo.overdue > 0 ? `（含 ${dueInfo.overdue} 个已逾期）` : ''}
+            🔔 今天有 {dueTotal} 个待办要处理{dueInfo.overdue > 0 ? `（含 ${dueInfo.overdue} 个已逾期）` : ''}
           </Text>
           <Text className='due-banner-go'>去处理 ›</Text>
         </View>
@@ -219,7 +219,7 @@ export default function Index(): JSX.Element {
       {isCurrentMonth && budget > 0 && (
         <View className='budget-card'>
           <View className='budget-header'>
-            <Text className='budget-title'>月度预算</Text>
+            <Text className='budget-title'>📊 月度预算</Text>
             <View className='budget-tag' style={`background:${over ? '#FEF2F2' : pct >= 80 ? '#FFFBEB' : '#ECFDF5'}`}>
               <Text style={`color:${budgetColor};font-size:22rpx;font-weight:600`}>{over ? '已超支' : `${pct}%`}</Text>
             </View>
@@ -237,7 +237,7 @@ export default function Index(): JSX.Element {
       {/* ====== v0.7.8 钱花哪了：Top3 分类迷你条（点击进统计页） ====== */}
       {top3.length > 0 && (
         <View className='top3-card' onClick={() => Taro.switchTab({ url: '/pages/stats/index' })}>
-          <Text className='top3-title'>这个月钱花哪了</Text>
+          <Text className='top3-title'>🏆 这个月钱花哪了</Text>
           {top3.map((t) => {
             const pct = exp > 0 ? Math.round((t.total / exp) * 100) : 0
             return (
@@ -257,27 +257,27 @@ export default function Index(): JSX.Element {
       {/* ====== 快捷操作 ====== */}
       <View className='actions'>
         <View className='action-item' onClick={() => Taro.switchTab({ url: '/pages/add/index' })}>
-          <View className='action-icon action-add'>记</View>
+          <View className='action-icon action-add'>✏️</View>
           <Text className='action-text'>记账</Text>
         </View>
         <View className='action-item' onClick={() => Taro.navigateTo({ url: '/pages/todos/index' })}>
-          <View className='action-icon action-todo'>待</View>
+          <View className='action-icon action-todo'>🔔</View>
           <Text className='action-text'>待办</Text>
         </View>
         <View className='action-item' onClick={() => { setShowBudget(true); setBudgetInput(budget > 0 ? String(Math.round(budget)) : '') }}>
-          <View className='action-icon action-budget'>预</View>
+          <View className='action-icon action-budget'>🎯</View>
           <Text className='action-text'>{budget > 0 ? '预算' : '设预算'}</Text>
         </View>
         <View className='action-item' onClick={() => Taro.navigateTo({ url: '/pages/categories/index' })}>
-          <View className='action-icon action-cat'>类</View>
+          <View className='action-icon action-cat'>🏷️</View>
           <Text className='action-text'>分类</Text>
         </View>
         <View className='action-item' onClick={() => Taro.navigateTo({ url: '/pages/recurring/index' })}>
-          <View className='action-icon action-recur'>期</View>
+          <View className='action-icon action-recur'>🔁</View>
           <Text className='action-text'>周期</Text>
         </View>
         <View className='action-item' onClick={() => Taro.switchTab({ url: '/pages/stats/index' })}>
-          <View className='action-icon action-stats'>统</View>
+          <View className='action-icon action-stats'>📊</View>
           <Text className='action-text'>统计</Text>
         </View>
       </View>
@@ -291,6 +291,7 @@ export default function Index(): JSX.Element {
 
         {recent.length === 0 ? (
           <View className='empty'>
+            <Text className='empty-icon'>📝</Text>
             <Text>暂无记录，去记一笔吧</Text>
           </View>
         ) : (
@@ -309,7 +310,7 @@ export default function Index(): JSX.Element {
                 <View className='record-btm'>
                   <Text className='record-date'>{r.date}</Text>
                   {r.note ? <Text className='record-note'>· {r.note}</Text> : null}
-                  {r.photo ? <Text className='record-note' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>· 凭证</Text> : null}
+                  {r.photo ? <Text className='record-note' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>· 📷</Text> : null}
                 </View>
               </View>
             </View>
@@ -319,7 +320,7 @@ export default function Index(): JSX.Element {
 
       {/* 外观 & 云同步 & 清除数据 */}
       <View className='clear-btn' onClick={pickTheme}>
-        <Text className='clear-text'>外观 · {THEME_PREFS.find((p) => p.key === themePref)?.label}{themePref === 'system' && dark ? '（当前深色）' : ''}</Text>
+        <Text className='clear-text'>🌙 外观 · {THEME_PREFS.find((p) => p.key === themePref)?.label}{themePref === 'system' && dark ? '（当前深色）' : ''}</Text>
       </View>
       <View className='clear-btn' onClick={openCloud}>
         <Text className='clear-text'>☁️ 云同步 · 同步码：{formatOwnerId(ownerId || getOwnerId())}</Text>

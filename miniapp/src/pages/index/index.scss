@@ -54,10 +54,10 @@
 /* ====== 结余卡片 ====== */
 .balance-card {
   background: var(--card);
-  border-radius: 24rpx;
+  border-radius: 28rpx;
   padding: 32rpx 28rpx 24rpx;
   margin-bottom: 16rpx;
-  border: 1rpx solid var(--line);
+  box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04);
   text-align: center;
 }
 .balance-label {
@@ -105,10 +105,10 @@
 /* ====== 预算卡片 ====== */
 .budget-card {
   background: var(--card);
-  border-radius: 24rpx;
+  border-radius: 28rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 16rpx;
-  border: 1rpx solid var(--line);
+  box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04);
 }
 .budget-header {
   display: flex;
@@ -150,10 +150,10 @@
   display: flex;
   flex-wrap: wrap;
   background: var(--card);
-  border-radius: 24rpx;
+  border-radius: 28rpx;
   padding: 28rpx 8rpx 8rpx;
   margin-bottom: 16rpx;
-  border: 1rpx solid var(--line);
+  box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04);
 }
 .action-item {
   display: flex;
@@ -166,21 +166,18 @@
 .action-icon {
   width: 80rpx;
   height: 80rpx;
-  border-radius: 20rpx;
+  border-radius: 22rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 34rpx;
-  font-weight: 600;
-  color: #fff;
+  font-size: 36rpx;
 }
-/* 实色块 + 汉字首字（v0.8.2 去 emoji 图标） */
-.action-add { background: #FF6B35; }
-.action-budget { background: #F59E0B; }
-.action-cat { background: #6366F1; }
-.action-stats { background: #0EA5E9; }
-.action-recur { background: #10B981; }
-.action-todo { background: #EF4444; }
+.action-add { background: #FFF0E8; }
+.action-budget { background: #FFF7ED; }
+.action-cat { background: var(--soft); }
+.action-stats { background: var(--soft); }
+.action-recur { background: #FFF0E8; }
+.action-todo { background: #FEF2F2; }
 .action-text {
   font-size: 24rpx;
   color: var(--sub);
@@ -190,10 +187,10 @@
 /* ====== 记录区域 ====== */
 .section {
   background: var(--card);
-  border-radius: 24rpx;
+  border-radius: 28rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 16rpx;
-  border: 1rpx solid var(--line);
+  box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04);
 }
 .section-header {
   display: flex;
@@ -294,7 +291,7 @@
   z-index: 1000;
 }
 .modal-box {
-  background: var(--card); border-radius: 24rpx; padding: 36rpx;
+  background: var(--card); border-radius: 28rpx; padding: 36rpx;
   width: 85%; max-width: 560rpx; box-sizing: border-box;
 }
 .modal-title {
@@ -316,7 +313,7 @@
 
 /* ====== v0.7.8 Top3 分类迷你条 ====== */
 .top3-card {
-  background: var(--card); border-radius: 20rpx; padding: 24rpx 28rpx;
+  background: var(--card); border-radius: 24rpx; padding: 24rpx 28rpx;
   margin-bottom: 20rpx; box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, .04);
 }
 .top3-title { display: block; font-size: 26rpx; font-weight: 700; color: var(--text); margin-bottom: 16rpx; }
@@ -328,5 +325,5 @@
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .top3-bar { flex: 1; height: 14rpx; border-radius: 7rpx; background: var(--soft); overflow: hidden; }
-.top3-fill { height: 100%; border-radius: 7rpx; background: #FF6B35; }
+.top3-fill { height: 100%; border-radius: 7rpx; background: linear-gradient(90deg, #FF6B35, #FF8555); }
 .top3-amt { font-size: 22rpx; color: var(--muted); flex-shrink: 0; width: 170rpx; text-align: right; }

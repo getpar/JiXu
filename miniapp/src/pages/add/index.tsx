@@ -85,8 +85,8 @@ export default function Add(): JSX.Element {
     <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* 类型切换 */}
       <View className='type-switch'>
-        <View className={`type-btn ${type === 'expense' ? 'active expense' : ''}`} onClick={() => setType('expense')}><Text>支出</Text></View>
-        <View className={`type-btn ${type === 'income' ? 'active income' : ''}`} onClick={() => setType('income')}><Text>收入</Text></View>
+        <View className={`type-btn ${type === 'expense' ? 'active expense' : ''}`} onClick={() => setType('expense')}><Text>💰 支出</Text></View>
+        <View className={`type-btn ${type === 'income' ? 'active income' : ''}`} onClick={() => setType('income')}><Text>💵 收入</Text></View>
       </View>
 
       {/* 金额 */}
@@ -152,7 +152,7 @@ export default function Add(): JSX.Element {
             <View className='photo-del' onClick={() => setPhoto('')}><Text>×</Text></View>
           </View>
         ) : (
-          <View className='photo-add' onClick={choosePhoto}><Text>拍小票 / 选照片</Text></View>
+          <View className='photo-add' onClick={choosePhoto}><Text>📷 拍小票 / 选照片</Text></View>
         )}
       </View>
 

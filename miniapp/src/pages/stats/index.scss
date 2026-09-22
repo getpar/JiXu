@@ -14,8 +14,8 @@
 
 /* ====== 卡片 ====== */
 .card {
-  background: var(--card); border-radius: 24rpx; padding: 24rpx 28rpx;
-  margin-bottom: 20rpx; border: 1rpx solid var(--line);
+  background: var(--card); border-radius: 28rpx; padding: 24rpx 28rpx;
+  margin-bottom: 20rpx; box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04);
 }
 
 /* ====== 合计卡片 ====== */
@@ -90,7 +90,7 @@
 }
 .trend-bar {
   width: 28rpx; border-radius: 6rpx 6rpx 0 0;
-  background: #FF6B35;
+  background: linear-gradient(180deg, #FF6B35, #FF8555);
   min-height: 6rpx; transition: height 0.4s ease;
   flex-shrink: 1;
 }
@@ -152,7 +152,7 @@
   background: var(--soft); min-height: 6rpx;
   transition: height 0.4s ease;
 }
-.month-bar.current { background: #FF6B35; }
+.month-bar.current { background: linear-gradient(180deg, #FF6B35, #FF8555); }
 .month-label { font-size: 22rpx; color: var(--faint); white-space: nowrap; margin-top: 2rpx; }
 .month-label.current { color: #FF6B35; font-weight: 700; }
 

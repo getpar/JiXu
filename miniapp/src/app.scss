@@ -27,7 +27,6 @@ page {
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  font-variant-numeric: tabular-nums; /* 金额数字等宽对齐，报表感 */
 }
 
 .container {
@@ -36,10 +35,10 @@ page {
 
 .card {
   background: var(--card);
-  border-radius: 20rpx;
+  border-radius: 24rpx;
   padding: 28rpx;
   margin-bottom: 20rpx;
-  border: 1rpx solid var(--line);
+  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.04);
 }
 
 /* 颜色语义 */
@@ -74,7 +73,7 @@ page {
 
 /* 按钮 */
 .btn-primary {
-  background: #FF6B35;
+  background: linear-gradient(135deg, #FF6B35, #FF8555);
   color: #fff;
   text-align: center;
   border-radius: 16rpx;

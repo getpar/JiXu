@@ -8,7 +8,7 @@
 .type-btn.active.income { background: #10B981; }
 
 /* 卡片 */
-.card { background: var(--card); border-radius: 20rpx; padding: 24rpx; margin-bottom: 20rpx; border: 1rpx solid var(--line); }
+.card { background: var(--card); border-radius: 24rpx; padding: 24rpx; margin-bottom: 20rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.04); }
 .label { font-size: 26rpx; color: var(--muted); display: block; margin-bottom: 10rpx; font-weight: 500; }
 
 /* 金额 */
@@ -52,4 +52,4 @@
 }
 
 /* 提交按钮 */
-.submit-btn { background: #FF6B35; color: #fff; text-align: center; padding: 24rpx; border-radius: 18rpx; font-size: 32rpx; font-weight: 700; margin-top: 28rpx;  }
+.submit-btn { background: linear-gradient(135deg, #FF6B35, #FF8555); color: #fff; text-align: center; padding: 24rpx; border-radius: 18rpx; font-size: 32rpx; font-weight: 700; margin-top: 28rpx; box-shadow: 0 4rpx 16rpx rgba(255,107,53,0.3); }
