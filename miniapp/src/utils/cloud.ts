@@ -9,7 +9,7 @@
  * ★═══════════ 激活真云的步骤（拿到 AppID 后照做，除第 1 步外不用改代码）═══════★
  * 1. 把下方 DEFAULT_CLOUD_ENV_ID 填入你的 CloudBase 环境 ID（形如 'daily-notes-3gxxxxxxxxxx'）
  *    （v0.7.1 方案B：不改源码也能换环境——在 Storage 里设 cloud_env_id = 自己的环境 ID 即可覆盖默认值；
- *     界面上故意不暴露入口，防普通用户误触把账本“换丢”）
+ *     v0.8.8 起界面已有入口：云同步弹窗 →「自定义云环境 ID（高级）」折叠区，填了自己的库就用自己的库）
  * 2. 腾讯云开发控制台 → 环境设置 → 小程序认证 → 扫码授权，关联你的微信小程序 AppID
  *    （关联后小程序才能通过 wx.cloud 免域名备案直接访问该环境）
  * 3. 控制台数据库中新建集合：records，权限设置为「所有用户可读，仅创建者可读写」
@@ -37,6 +37,21 @@ export function getEnvId(): string {
     if (custom && typeof custom === 'string' && custom.trim()) return custom.trim()
   } catch { /* Storage 不可用时退回默认环境 */ }
   return DEFAULT_CLOUD_ENV_ID
+}
+
+/** v0.8.8 内置默认环境 ID（界面展示"恢复默认"用） */
+export function getDefaultEnvId(): string {
+  return DEFAULT_CLOUD_ENV_ID
+}
+
+/** v0.8.8 设置自定义云环境 ID（云同步弹窗·高级设置）；传空 = 清除自定义、回到默认环境。
+ *  保存后无需重启：createWxCloudCollection 检测 envId 变化会自动重新 init 新环境 */
+export function setCustomEnvId(id: string): void {
+  const v = (id || '').trim()
+  try {
+    if (v) Taro.setStorageSync(ENV_OVERRIDE_KEY, v)
+    else Taro.removeStorageSync(ENV_OVERRIDE_KEY)
+  } catch { /* 存储写入失败不影响业务 */ }
 }
 
 // ---- 同步码（户标识，多用户隔离）----

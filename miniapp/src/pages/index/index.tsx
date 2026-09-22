@@ -2,7 +2,7 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, localDateStr } from '../../utils/storage'
-import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud } from '../../utils/cloud'
+import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud, getEnvId, getDefaultEnvId, setCustomEnvId } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
 import type { ThemePref } from '../../utils/theme'
@@ -50,6 +50,9 @@ export default function Index(): JSX.Element {
   const [joinInput, setJoinInput] = useState('')
   // v0.7.1 云端真实连通自检结果（打开弹窗时异步检测，不再假确认）
   const [cloudTest, setCloudTest] = useState<{ real: boolean; detail: string } | null>(null)
+  // v0.8.8 高级设置：自定义云环境 ID（默认折叠，点开才显示输入框，防普通用户误触）
+  const [showEnv, setShowEnv] = useState(false)
+  const [envInput, setEnvInput] = useState('')
   // v0.7.2 方案B App 内强提醒：今天到期/已逾期未完成的待办
   const [dueInfo, setDueInfo] = useState({ due: 0, overdue: 0 })
   const dueTotal = dueInfo.due + dueInfo.overdue
@@ -136,8 +139,29 @@ export default function Index(): JSX.Element {
     setOwnerId_(getOwnerId())
     setJoinInput('')
     setCloudTest(null)
+    setShowEnv(false)
+    setEnvInput('')
     setShowCloud(true)
     testCloud().then(setCloudTest).catch((e) => setCloudTest({ real: false, detail: `检测失败：${e?.message || e}` }))
+  }
+
+  /** v0.8.8 应用云环境切换（空串 = 恢复默认环境）：写入覆盖 → 重连通自检 → 通了就立刻同步一次 */
+  function applyEnv(raw: string): void {
+    const v = (raw || '').trim()
+    if (v && /\s/.test(v)) {
+      Taro.showToast({ title: '环境 ID 不能包含空格', icon: 'none' })
+      return
+    }
+    setCustomEnvId(v)
+    setEnvInput('')
+    setCloudTest(null)
+    Taro.showToast({ title: v ? '正在连接自定义云环境…' : '已恢复默认云环境…', icon: 'none' })
+    testCloud()
+      .then((r) => {
+        setCloudTest(r)
+        if (r.real) syncNow(true).then(() => { refresh(); Taro.eventCenter.trigger('dataChanged') }).catch(() => { /* 下次进页兜底 */ })
+      })
+      .catch((e) => setCloudTest({ real: false, detail: `检测失败：${e?.message || e}` }))
   }
 
   function copyOwnerId(): void {
@@ -355,6 +379,29 @@ export default function Index(): JSX.Element {
               <View className='btn btn-cancel' onClick={handleRegenerate}><Text>换新码</Text></View>
               <View className='btn btn-ok' onClick={handleJoin}><Text className='btn-ok-text'>加入</Text></View>
             </View>
+
+            {/* ====== v0.8.8 高级设置：自定义云环境 ID（默认折叠，和桌面端云设置对齐） ====== */}
+            <View style='margin-top:28rpx;padding-top:20rpx;border-top:1rpx solid var(--border,#EEE)' onClick={() => setShowEnv(!showEnv)}>
+              <Text style='font-size:22rpx;color:var(--muted)'>⚙️ 自定义云环境 ID（高级）{showEnv ? ' ▲' : ' ▼'}</Text>
+            </View>
+            {showEnv && (
+              <View>
+                <Text style='font-size:22rpx;color:var(--muted);display:block;margin:12rpx 0 8rpx'>
+                  自己有微信云开发/CloudBase 环境时，填它的环境 ID，账本就存进你自己的云数据库；不填则用默认环境。
+                  注意：换环境后各环境的账互不可见，需在新环境里重新输入同步码对码
+                </Text>
+                <Text style='font-size:22rpx;color:var(--text);display:block;margin-bottom:8rpx'>
+                  当前环境：<Text style='color:#FF6B35'>{getEnvId() || '本地模拟云'}</Text>{getEnvId() === getDefaultEnvId() ? '（默认）' : '（自定义）'}
+                </Text>
+                <View className='input-wrap'>
+                  <Input className='input' placeholder={`默认：${getDefaultEnvId()}`} value={envInput} onInput={(e) => setEnvInput(e.detail.value)} />
+                </View>
+                <View className='modal-btns'>
+                  <View className='btn btn-cancel' onClick={() => applyEnv('')}><Text>恢复默认</Text></View>
+                  <View className='btn btn-ok' onClick={() => applyEnv(envInput)}><Text className='btn-ok-text'>保存并重连</Text></View>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       )}
