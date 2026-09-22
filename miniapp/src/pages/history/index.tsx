@@ -1,7 +1,7 @@
 import { View, Text, Picker, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, purgeRecord, getDeletedRecords, localDateStr } from '../../utils/storage'
+import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, purgeRecord, getDeletedRecords, localDateStr, sortRecordsByTimeDesc } from '../../utils/storage'
 import * as XLSX from 'xlsx'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
@@ -109,7 +109,7 @@ export default function History(): JSX.Element {
   if (month) filtered = filtered.filter((r) => r.date.startsWith(month))
   if (type) filtered = filtered.filter((r) => r.type === type)
   if (keyword) filtered = filtered.filter((r) => r.note.includes(keyword) || r.categoryName.includes(keyword) || r.subcategoryName.includes(keyword) || (r.person || '').includes(keyword))
-  filtered = [...filtered].sort((a, b) => b.date.localeCompare(a.date))
+  filtered = sortRecordsByTimeDesc([...filtered]) // v0.8.7 日期倒序 + 同日按提交时间倒序
 
   const expenseSum = filtered.filter((r) => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
   const incomeSum = filtered.filter((r) => r.type === 'income').reduce((s, r) => s + r.amount, 0)

@@ -182,6 +182,13 @@ function AppLayout(): JSX.Element {
     }
   }
 
+  /** 'YYYY-MM-DD HH:mm:ss'（本地时区）→ 毫秒时间戳；解析失败退 0（v0.8.7 提交时间随云同步用） */
+  function dateStrToMs(s: string | undefined): number {
+    if (!s) return 0
+    const t = new Date(s.replace(' ', 'T')).getTime()
+    return Number.isFinite(t) ? t : 0
+  }
+  
   async function handleSync(): Promise<void> {
     if (syncing) return
 
@@ -205,6 +212,7 @@ function AppLayout(): JSX.Element {
         note: r.note || '',
         date: r.record_date || '',
         person: r.person || '',
+        createdAt: dateStrToMs(r.created_at), // v0.8.7 提交时刻随云上云，对端同日排序一致
         deleted: r.deleted ? 1 : 0,
         reviveCount: r.revive_count || 0,
       }))
@@ -233,6 +241,7 @@ function AppLayout(): JSX.Element {
               note: cr.note || '',
               record_date: cr.date,
               person: cr.person || '',
+              created_at: cr.createdAt || cr.updatedAt, // v0.8.7 落库保留对端提交时刻（老云端数据退上云时刻）
             })
             imported++
           } catch { /* skip duplicates */ }

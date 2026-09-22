@@ -38,6 +38,7 @@ export interface CloudRecord {
   note: string
   date: string          // YYYY-MM-DD
   person?: string       // v0.8.0 记录人（谁花的，可选）
+  createdAt?: number    // v0.8.7 提交时刻（毫秒时间戳）：跨端保持"同一天内记的早的排后面"
   updatedAt: number     // 毫秒时间戳，增量同步依据
   source?: string       // 'desktop' | 'miniapp'（旧数据可能没有此字段）
   ownerId?: string      // 同步码（户标识），只同步同码记录；旧数据无此字段 = 孤立数据不再拉取
@@ -142,6 +143,7 @@ export interface SyncableRecord {
   note: string
   date: string
   person?: string       // v0.8.0 记录人（谁花的，可选）
+  createdAt?: number    // v0.8.7 提交时刻毫秒时间戳（随云同步跨端，列表排序依据）
   deleted?: number      // v0.6.6 软删除：0/undefined = 正常，1 = 已删除（仅本地状态，同步靠删除凭证文档）
   reviveCount?: number  // v0.6.7 本笔被恢复过的次数（仅本地；期望云端凭证数 = 已删数 + 恢复数）
 }
@@ -225,6 +227,7 @@ export function cloudToLocal(r: CloudRecord): SyncableRecord {
     note: r.note || '',
     person: r.person || '',
     date: r.date,
+    createdAt: r.createdAt || r.updatedAt, // v0.8.7 老云端数据无提交时刻时退用上云时间
   }
 }
 
@@ -240,6 +243,7 @@ export function localToCloud(r: SyncableRecord, source: string, now: number, own
     note: r.note || '',
     person: r.person || '',
     date: r.date,
+    createdAt: r.createdAt || now, // v0.8.7 提交时刻随云上云（老本地数据退用上传时刻）
     updatedAt: now,
     source,
     ownerId,

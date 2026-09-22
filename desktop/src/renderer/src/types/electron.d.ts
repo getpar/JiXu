@@ -90,7 +90,7 @@ interface ElectronAPI {
   deleteCategory: (categoryKey: string, subcategoryKey: string) => Promise<{ success: boolean; error?: string }>
 
   // 记录
-  addRecord: (data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string; person?: string }) => Promise<{ id: number }>
+  addRecord: (data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string; person?: string; created_at?: number }) => Promise<{ id: number }>
   getRecordList: (filters?: { page?: number; pageSize?: number; month?: string; category_key?: string; type?: string; keyword?: string; includeDeleted?: boolean; onlyDeleted?: boolean }) => Promise<RecordListResult>
   deleteRecord: (id: number) => Promise<{ success: boolean }>
   markRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ marked: number }>

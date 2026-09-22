@@ -15,6 +15,7 @@ export interface RecordItem {
   note: string
   date: string
   person?: string       // v0.8.0 记录人（谁花的，可选，随云同步跨端）
+  createdAt?: number    // v0.8.7 提交时刻毫秒时间戳（随云同步跨端；列表同日按它倒序，新的在上）
   photo?: string        // v0.8.1 拍照凭证：本机持久文件路径（仅存手机，不上云）
   deleted?: number      // v0.6.6 软删除：1 = 已删（页面不显示，数据留底可恢复）；undefined/0 = 正常
   reviveCount?: number  // v0.6.7 被恢复过的次数（同步用：历史删除凭证配额 = 已删 + 恢复次数）
@@ -73,7 +74,7 @@ async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
     added++
   }
   if (added > 0) {
-    list.sort((a, b) => b.date.localeCompare(a.date))
+    sortRecordsByTimeDesc(list)
     saveLocalRecords(list)
   }
   return added
@@ -172,9 +173,19 @@ export async function purgeRecord(id: string): Promise<void> {
 
 // ========== 记录 CRUD ==========
 
+/** v0.8.7 提交时刻排序键：createdAt 优先，老数据退用毫秒 id（本地新增时 id 即时间戳），云端导入的 cloud_ id 退 0 */
+function createdAtOf(r: RecordItem): number {
+  return r.createdAt || Number(r.id) || 0
+}
+
+/** v0.8.7 统一账单排序：日期倒序 + 同一天按提交时间倒序（9 点记的排在 8 点上面） */
+export function sortRecordsByTimeDesc(list: RecordItem[]): RecordItem[] {
+  return list.sort((a, b) => b.date.localeCompare(a.date) || createdAtOf(b) - createdAtOf(a))
+}
+
 export async function getRecords(): Promise<RecordItem[]> {
-  // 页面展示用：只返回未删除的记录（软删除对全页面自动生效）
-  return (await getAllRecords()).filter((r) => !(r.deleted || 0))
+  // 页面展示用：只返回未删除的记录（软删除对全页面自动生效），并按统一时间倒序
+  return sortRecordsByTimeDesc((await getAllRecords()).filter((r) => !(r.deleted || 0)))
 }
 
 /** 引擎内部用：返回全部行（含已标记删除的，笔数配对需要完整底数） */
@@ -189,10 +200,13 @@ function saveLocalRecords(list: RecordItem[]): void {
 }
 
 export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<void> {
-  const list = await getRecords()
-  const record: RecordItem = { ...r, id: Date.now().toString() }
+  // v0.8.7 修正：基于全量列表（含回收站行）追加——旧版用 getRecords() 只拿存活行回写存储，
+  // 会把本地回收站底单弄丢，导致同步时"已删的账"被当缺口从云端重新拉回复活
+  const list = await getAllRecords()
+  const now = Date.now()
+  const record: RecordItem = { ...r, id: now.toString(), createdAt: r.createdAt || now }
   list.unshift(record)
-  saveLocalRecords(list)
+  saveLocalRecords(sortRecordsByTimeDesc(list))
   // v0.6.5 起不再单条直推云端，改交给同步引擎按"笔数配对"推送：
   // 否则双端同时记同一笔会在云端临时形成两条同键文档，引擎会误判成真有两笔而重复入账
   try {
@@ -214,7 +228,7 @@ export async function deleteRecord(id: string): Promise<void> {
 
 // v0.6.8 回收站：读本地已删除记录（按日期倒序），供账单页「已删除」折叠区展示
 export function getDeletedRecords(): RecordItem[] {
-  return readDeletedSync().sort((a, b) => b.date.localeCompare(a.date))
+  return sortRecordsByTimeDesc(readDeletedSync())
 }
 
 function readDeletedSync(): RecordItem[] {
@@ -231,7 +245,7 @@ export async function restoreRecord(id: string): Promise<void> {
   if (!rec || !(rec.deleted || 0)) return
   rec.deleted = 0
   rec.reviveCount = (rec.reviveCount || 0) + 1
-  list.sort((a, b) => b.date.localeCompare(a.date))
+  sortRecordsByTimeDesc(list)
   saveLocalRecords(list)
   try {
     await syncNow(true) // 把撤销凭条同步上云（失败不阻塞，下次同步会补传）
@@ -244,8 +258,9 @@ export async function updateRecord(id: string, data: Partial<RecordItem>): Promi
   const old = list.find((r) => String(r.id) === String(id))
   if (!old || old.deleted) return
   old.deleted = 1
-  list.unshift({ ...old, ...data, id: `${Date.now()}`, deleted: 0 } as RecordItem)
-  list.sort((a, b) => b.date.localeCompare(a.date))
+  // 编辑产生的新行沿用旧行 createdAt（还是"那一笔"，排序位置不跳到最前）；老数据无此字段时退新行 id
+  list.unshift({ ...old, ...data, id: `${Date.now()}`, createdAt: old.createdAt || Number(old.id) || 0, deleted: 0 } as RecordItem)
+  sortRecordsByTimeDesc(list)
   saveLocalRecords(list)
   try {
     await syncNow(true)

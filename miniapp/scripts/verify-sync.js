@@ -67,8 +67,8 @@ function createDesktopDevice(cloud, ownerId) {
   const isRev = (d) => d.kind === 'revive'
   const isPur = (d) => d.kind === 'purge'
   const device = {
-    /** 模拟用户在桌面端记一笔（写进本地 SQLite） */
-    appAdd(r) { local.push({ ...r, id: local.length + 1, deleted: 0, reviveCount: 0 }) },
+    /** 模拟用户在桌面端记一笔（写进本地 SQLite；v0.8.7 created_at 默认当前时刻，测试可显式传入） */
+    appAdd(r) { local.push({ ...r, createdAt: r.createdAt || now(), id: local.length + 1, deleted: 0, reviveCount: 0 }) },
     /** 模拟点"删除"：只打标记，不同步（v0.6.6 软删除） */
     appDelete(filterFn) {
       const rec = local.find((r) => !(r.deleted > 0) && filterFn(r))
@@ -730,6 +730,28 @@ async function main() {
   assert(mr.pushed === 0 && mr.pulled === 0, `收敛：设备 C 再同步 0 推 0 拉，不诈尸回传账单/凭证（pushed=${mr.pushed} pulled=${mr.pulled}，云端账单 ${cloudRec33} 张、凭证 ${cloudTomb33} 张）`)
 
   // ---- 汇总 ----
+
+  console.log('\n【场景㉑】v0.8.7 提交时间 createdAt 跨端随同步传递：对端拿到的是"早上 8 点记的"原时刻')
+  const t8 = now() - 3600_000  // 一小时前（"早上 8 点"）
+  const t9 = now()             // 刚刚（"早上 9 点"）
+  const rec8 = { type: 'expense', amount: 61, categoryKey: 'transport', categoryName: '交通出行', subcategoryKey: 'taxi', subcategoryName: '出租车/网约车', note: '早高峰打车', date: '2026-09-29', createdAt: t8 }
+  const rec9 = { type: 'expense', amount: 62, categoryKey: 'food', categoryName: '餐饮饮食', subcategoryKey: 'lunch', subcategoryName: '午餐', note: '', date: '2026-09-29', createdAt: t9 }
+  desktop.appAdd(rec8)
+  desktop.appAdd(rec9)
+  await desktop.performSync()
+  const cloudDay = (await cloud.listAll(HOUSE_A)).filter((d) => !d.kind && d.date === '2026-09-29')
+  assert(cloudDay.length === 2 && cloudDay.every((d) => d.createdAt > 0), `云端账单文档带提交时间（${cloudDay.length} 条）`)
+  mr = await miniapp.sync()
+  const m8 = miniapp.getLocal().find((r) => r.amount === 61 && r.date === '2026-09-29')
+  const m9 = miniapp.getLocal().find((r) => r.amount === 62 && r.date === '2026-09-29')
+  assert(mr.ok && m8 && m9 && m8.createdAt === t8 && m9.createdAt === t9,
+    '小程序拉回后保留原提交时刻（8 点/9 点不混成拉取时间）')
+  // 反向：小程序 8.5 点记一笔 → 桌面拉回也带原时刻
+  const t85 = now() - 1800_000
+  await miniapp.appAdd({ type: 'expense', amount: 63, categoryKey: 'food', categoryName: '餐饮饮食', subcategoryKey: 'snack', subcategoryName: '零食饮料', note: '冰棍', date: '2026-09-29', createdAt: t85 })
+  dr = await desktop.performSync()
+  const d9 = desktop.getLocal().find((r) => r.amount === 63 && r.date === '2026-09-29')
+  assert(dr.downloaded >= 1 && d9 && d9.createdAt === t85, '桌面拉回小程序记录同样保留原提交时刻')
 
   console.log('')
   if (failed === 0) {

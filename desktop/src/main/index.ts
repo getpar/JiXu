@@ -331,11 +331,26 @@ function setupIPC(): void {
   ipcMain.handle('records:add', (_event, data: {
     type: string; amount: number; category_key: string
     subcategory_key: string; note: string; record_date: string; person?: string
+    created_at?: number // v0.8.7 同步导入时携带对端提交时刻（毫秒时间戳）；本机新记不传 = 用当前时间
   }) => {
-    db!.run(
-      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [data.type || 'expense', data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '']
-    )
+    // 毫秒时间戳转本地 'YYYY-MM-DD HH:mm:ss'（与 datetime('now','localtime') 同格式，可字典序比较）
+    let createdAtSql = ''
+    if (data.created_at && Number.isFinite(data.created_at) && data.created_at > 0) {
+      const d = new Date(data.created_at)
+      const pad = (n: number): string => String(n).padStart(2, '0')
+      createdAtSql = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    }
+    if (createdAtSql) {
+      db!.run(
+        'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [data.type || 'expense', data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '', createdAtSql]
+      )
+    } else {
+      db!.run(
+        'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [data.type || 'expense', data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '']
+      )
+    }
     const result = db!.exec('SELECT last_insert_rowid() as id')
     const id = result[0]?.values[0]?.[0] || 0
     saveDatabase()
@@ -405,9 +420,10 @@ function setupIPC(): void {
     const old = queryOne('SELECT * FROM records WHERE id = ?', [id])
     if (!old) return { success: false }
     db!.run("UPDATE records SET deleted = 1, updated_at = datetime('now','localtime') WHERE id = ?", [id])
+    // v0.8.7 新行沿用旧行 created_at：编辑不改变"提交时间"，列表排序位置不跳
     db!.run(
-      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [data.type, data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '']
+      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [data.type, data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '', old.created_at || '']
     )
     const result = db!.exec('SELECT last_insert_rowid() as id')
     const newId = result[0]?.values[0]?.[0] || 0

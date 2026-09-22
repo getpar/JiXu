@@ -104,6 +104,7 @@ export interface CloudRecord {
   note: string
   date: string
   person?: string  // v0.8.0 记录人（谁花的，可选）
+  createdAt?: number // v0.8.7 提交时刻毫秒时间戳：跨端保持"同一天内记的早的排后面"
   updatedAt: number
   ownerId?: string   // 同步码，只同步同码记录（多用户隔离）
   source?: string
@@ -375,7 +376,7 @@ export async function performSync(
   localRecords: {
     type: string; amount: number; categoryKey: string; categoryName: string
     subcategoryKey: string; subcategoryName: string; note: string; date: string
-    person?: string; deleted?: number; reviveCount?: number
+    person?: string; createdAt?: number; deleted?: number; reviveCount?: number
   }[],
   localTodos: EntitySnapshot[] = [],
   localRecurring: EntitySnapshot[] = [],
