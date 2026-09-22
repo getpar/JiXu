@@ -1,7 +1,7 @@
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo, useEffect } from 'react'
-import { getMonthTotal, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, localDateStr } from '../../utils/storage'
+import { getMonthTotal, getMonthStats, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, localDateStr } from '../../utils/storage'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
@@ -53,6 +53,8 @@ export default function Index(): JSX.Element {
   // v0.7.2 方案B App 内强提醒：今天到期/已逾期未完成的待办
   const [dueInfo, setDueInfo] = useState({ due: 0, overdue: 0 })
   const dueTotal = dueInfo.due + dueInfo.overdue
+  // v0.7.8 本月钱花哪了：支出 Top3 分类迷你条
+  const [top3, setTop3] = useState<{ categoryKey: string; categoryName: string; total: number }[]>([])
 
   const isCurrentMonth = month === THIS_MONTH
 
@@ -67,10 +69,12 @@ export default function Index(): JSX.Element {
   }, [])
 
   async function refresh(): Promise<void> {
-    const [expVal, incVal, records] = await Promise.all([
+    const [expVal, incVal, records, stats] = await Promise.all([
       getMonthTotal(month, 'expense'), getMonthTotal(month, 'income'), getRecords(),
+      getMonthStats(month, 'expense'),
     ])
     setExp(expVal); setInc(incVal); setRecent(records.filter((r) => r.date.startsWith(month)).slice(0, 8))
+    setTop3(stats.slice(0, 3))
     if (isCurrentMonth) {
       const b = await getBudget()
       setBudget(b)
@@ -227,6 +231,26 @@ export default function Index(): JSX.Element {
             <Text className='budget-used'>已用 ¥{formatAmount(exp)}</Text>
             <Text className='budget-total'>预算 ¥{formatAmount(budget)}</Text>
           </View>
+        </View>
+      )}
+
+      {/* ====== v0.7.8 钱花哪了：Top3 分类迷你条（点击进统计页） ====== */}
+      {top3.length > 0 && (
+        <View className='top3-card' onClick={() => Taro.switchTab({ url: '/pages/stats/index' })}>
+          <Text className='top3-title'>🏆 这个月钱花哪了</Text>
+          {top3.map((t) => {
+            const pct = exp > 0 ? Math.round((t.total / exp) * 100) : 0
+            return (
+              <View key={t.categoryKey} className='top3-row'>
+                <Text className='top3-emoji'>{catEmoji[t.categoryKey] || '📌'}</Text>
+                <Text className='top3-name'>{t.categoryName}</Text>
+                <View className='top3-bar'>
+                  <View className='top3-fill' style={`width:${Math.max(pct, 4)}%`} />
+                </View>
+                <Text className='top3-amt'>¥{formatAmount(t.total)} · {pct}%</Text>
+              </View>
+            )
+          })}
         </View>
       )}
 

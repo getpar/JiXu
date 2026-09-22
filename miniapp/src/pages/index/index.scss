@@ -310,3 +310,20 @@
 .btn-cancel { background: var(--soft); color: var(--sub); }
 .btn-ok { background: #FF6B35; }
 .btn-ok-text { color: #fff; font-weight: 600; }
+
+/* ====== v0.7.8 Top3 分类迷你条 ====== */
+.top3-card {
+  background: var(--card); border-radius: 24rpx; padding: 24rpx 28rpx;
+  margin-bottom: 20rpx; box-shadow: 0 2rpx 16rpx rgba(0, 0, 0, .04);
+}
+.top3-title { display: block; font-size: 26rpx; font-weight: 700; color: var(--text); margin-bottom: 16rpx; }
+.top3-row { display: flex; align-items: center; gap: 12rpx; margin-bottom: 14rpx; }
+.top3-row:last-child { margin-bottom: 0; }
+.top3-emoji { font-size: 26rpx; flex-shrink: 0; }
+.top3-name {
+  font-size: 24rpx; color: var(--text); width: 130rpx; flex-shrink: 0;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.top3-bar { flex: 1; height: 14rpx; border-radius: 7rpx; background: var(--soft); overflow: hidden; }
+.top3-fill { height: 100%; border-radius: 7rpx; background: linear-gradient(90deg, #FF6B35, #FF8555); }
+.top3-amt { font-size: 22rpx; color: var(--muted); flex-shrink: 0; width: 170rpx; text-align: right; }
