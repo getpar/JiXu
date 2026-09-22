@@ -177,7 +177,10 @@ function AppLayout(): JSX.Element {
       let localRecurring: any[] = []
       try { localTodos = await window.electronAPI.getTodosForSync() || [] } catch { /* 老库无表时忽略 */ }
       try { localRecurring = await window.electronAPI.getRecurringForSync() || [] } catch { /* 同上 */ }
-      const { result, newCloudRecords, toMark, toAlive, todoIncoming, recurringIncoming } = await performSync(localRecords, localTodos, localRecurring)
+      // v0.8.5 本端待上传的"注销凭条"队列（回收站彻底删除产生，离线积压也在此补传）
+      let pendingPurges: any[] = []
+      try { pendingPurges = (await window.electronAPI.listPurges()).map((p: any) => ({ pid: p.pid, targetKey: p.target_key, cancelRec: p.cancel_rec, cancelTomb: p.cancel_tomb, cancelRev: p.cancel_rev, label: p.label })) } catch { /* 老库无表时忽略 */ }
+      const { result, newCloudRecords, toMark, toAlive, toPurge, purgeUploadedPids, todoIncoming, recurringIncoming } = await performSync(localRecords, localTodos, localRecurring, pendingPurges)
 
       if (result.success) {
         // 3. 将云端新记录写入本地 SQLite
@@ -214,6 +217,19 @@ function AppLayout(): JSX.Element {
           } catch { /* skip */ }
         }
 
+        // 4a. v0.8.5 消费对端"注销凭条"：其它设备彻底删除的账，本端回收站也物理清除；
+        //     本端已成功上云的凭条从待传队列清除（pid 幂等，失败下轮自动补传）
+        let purged = 0
+        for (const p of toPurge) {
+          try {
+            const res = await window.electronAPI.purgeLocalRecords(p.parts, p.count)
+            purged += res?.removed || 0
+          } catch { /* skip */ }
+        }
+        if (purgeUploadedPids?.length > 0) {
+          try { await window.electronAPI.clearPurges(purgeUploadedPids) } catch { /* skip */ }
+        }
+
         // 4b. v0.7.3 应用云端待办/周期账单快照（按 cloud_id upsert，含软删跟删）
         let entitiesApplied = 0
         try {
@@ -227,7 +243,7 @@ function AppLayout(): JSX.Element {
           }
         } catch { /* 回写失败不阻断账单同步结果 */ }
 
-        if (result.uploaded === 0 && imported === 0 && marked === 0 && revived === 0 && entitiesApplied === 0) {
+        if (result.uploaded === 0 && imported === 0 && marked === 0 && revived === 0 && purged === 0 && entitiesApplied === 0) {
           message.success('数据已是最新，无需同步')
         } else {
           const parts: string[] = []
@@ -235,6 +251,7 @@ function AppLayout(): JSX.Element {
           if (imported > 0) parts.push(`下载 ${imported} 条`)
           if (marked > 0) parts.push(`按云端凭证删除 ${marked} 条`)
           if (revived > 0) parts.push(`按云端凭条恢复 ${revived} 条`)
+          if (purged > 0) parts.push(`清除彻底删除 ${purged} 条`)
           if (entitiesApplied > 0) parts.push(`同步待办/周期规则 ${entitiesApplied} 条`)
           message.success(`同步完成：${parts.join('，')}`)
           // 实体变化后通知当前页面刷新（待办/周期页监听）

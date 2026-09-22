@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restoreRecord: (id: number) => ipcRenderer.invoke('records:restore', id),
   restoreRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) =>
     ipcRenderer.invoke('records:restoreByFingerprint', parts, count),
+  // v0.8.5 彻底删除：回收站行物理删除+注销凭条入队 / 引擎消费对端凭条 / 凭条队列读写
+  purgeRecordById: (id: number) => ipcRenderer.invoke('records:purgeById', id),
+  purgeLocalRecords: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) =>
+    ipcRenderer.invoke('records:purgeLocal', parts, count),
+  listPurges: () => ipcRenderer.invoke('purges:list'),
+  clearPurges: (pids: string[]) => ipcRenderer.invoke('purges:clear', pids),
 
   // 统计
   getMonthlyStats: (month: string, type?: string) => ipcRenderer.invoke('stats:getMonthlyStats', month, type),

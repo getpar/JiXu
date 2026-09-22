@@ -1,7 +1,7 @@
 import { View, Text, Picker, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, getDeletedRecords, localDateStr } from '../../utils/storage'
+import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, purgeRecord, getDeletedRecords, localDateStr } from '../../utils/storage'
 import * as XLSX from 'xlsx'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
@@ -56,6 +56,18 @@ export default function History(): JSX.Element {
         setRecords(await getRecords()); setDeletedList(getDeletedRecords())
         Taro.eventCenter.trigger('dataChanged')
         Taro.showToast({ title: '已恢复', icon: 'success' })
+      }
+    }})
+  }
+
+  // v0.8.5 彻底删除：本地物理删除 + 注销凭条上云，所有设备的回收站都会清掉这一笔，不可再恢复
+  async function handlePurge(id: string): Promise<void> {
+    Taro.showModal({ title: '彻底删除？', content: '这笔账将从手机和所有设备上永久清除，无法恢复', confirmColor: '#EF4444', success: async (res) => {
+      if (res.confirm) {
+        await purgeRecord(id)
+        setRecords(await getRecords()); setDeletedList(getDeletedRecords())
+        Taro.eventCenter.trigger('dataChanged')
+        Taro.showToast({ title: '已彻底删除', icon: 'success' })
       }
     }})
   }
@@ -215,6 +227,7 @@ export default function History(): JSX.Element {
                     <Text className='trash-amount'>{r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}</Text>
                     <View className='record-actions'>
                       <Text className='restore-btn' onClick={() => handleRestore(r.id)}>恢复</Text>
+                      <Text className='purge-btn' onClick={() => handlePurge(r.id)}>彻底删除</Text>
                     </View>
                   </View>
                 </View>

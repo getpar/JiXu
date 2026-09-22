@@ -131,6 +131,31 @@ export interface CloudRevive {
   label?: string
 }
 
+/** 注销凭条（v0.8.5 彻底删除）：与小程序端 cloudCore.ts 格式一致 */
+export interface CloudPurge {
+  _id?: string
+  kind: 'purge'
+  pid: string
+  targetKey: string
+  cancelRec: number
+  cancelTomb: number
+  cancelRev: number
+  ownerId: string
+  updatedAt: number
+  source?: string
+  label?: string
+}
+
+/** 本地待上传注销凭条（sync_purges 表行） */
+export interface PendingPurge {
+  pid: string
+  targetKey: string
+  cancelRec: number
+  cancelTomb: number
+  cancelRev: number
+  label?: string
+}
+
 /**
  * 实体快照文档（v0.7.3 待办/周期账单同步，与小程序端 cloudCore.ts 格式一致）：
  * 每次改动追加一条完整新快照，各端按 entityId 取 updatedAt 最大的一份；删除 = deleted:true 快照
@@ -145,11 +170,12 @@ export interface CloudEntityDoc {
   data: Record<string, any>
 }
 
-export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive | CloudEntityDoc
+export type CloudDoc = CloudRecord | CloudTombstone | CloudRevive | CloudPurge | CloudEntityDoc
 export type NewCloudDoc =
   | Omit<CloudRecord, '_id'>
   | Omit<CloudTombstone, '_id'>
   | Omit<CloudRevive, '_id'>
+  | Omit<CloudPurge, '_id'>
   | Omit<CloudEntityDoc, '_id'>
 
 export function isTombstone(d: CloudDoc): d is CloudTombstone {
@@ -158,6 +184,10 @@ export function isTombstone(d: CloudDoc): d is CloudTombstone {
 
 export function isRevive(d: CloudDoc): d is CloudRevive {
   return (d as CloudRevive).kind === 'revive'
+}
+
+export function isPurge(d: CloudDoc): d is CloudPurge {
+  return (d as CloudPurge).kind === 'purge'
 }
 
 export function isEntityDoc(d: CloudDoc): d is CloudEntityDoc {
@@ -349,27 +379,65 @@ export async function performSync(
   }[],
   localTodos: EntitySnapshot[] = [],
   localRecurring: EntitySnapshot[] = [],
+  pendingPurges: PendingPurge[] = [],
 ): Promise<{
   result: SyncResult
   newCloudRecords: CloudRecord[]
   toMark: MarkRequest[]
   toAlive: MarkRequest[]
+  toPurge: MarkRequest[]
+  purgeUploadedPids: string[]
   todoIncoming: EntitySnapshot[]
   recurringIncoming: EntitySnapshot[]
 }> {
-  const empty = { result: { success: false, uploaded: 0, downloaded: 0, error: '未连接云端' }, newCloudRecords: [] as CloudRecord[], toMark: [] as MarkRequest[], toAlive: [] as MarkRequest[], todoIncoming: [] as EntitySnapshot[], recurringIncoming: [] as EntitySnapshot[] }
+  const empty = { result: { success: false, uploaded: 0, downloaded: 0, error: '未连接云端' }, newCloudRecords: [] as CloudRecord[], toMark: [] as MarkRequest[], toAlive: [] as MarkRequest[], toPurge: [] as MarkRequest[], purgeUploadedPids: [] as string[], todoIncoming: [] as EntitySnapshot[], recurringIncoming: [] as EntitySnapshot[] }
   if (!db) return empty
 
   try {
     const docs = await downloadAllRecords()
-    const cloudRecs = docs.filter((d) => !isTombstone(d) && !isRevive(d) && !isEntityDoc(d)) as CloudRecord[]
+    const cloudRecs = docs.filter((d) => !isTombstone(d) && !isRevive(d) && !isPurge(d) && !isEntityDoc(d)) as CloudRecord[]
     const cloudTombs = docs.filter((d) => isTombstone(d)) as CloudTombstone[]
     const cloudRevs = docs.filter((d) => isRevive(d)) as CloudRevive[]
+    const cloudPurges = docs.filter((d) => isPurge(d)) as CloudPurge[]
     const cloudTodoDocs = docs.filter((d) => (d as CloudEntityDoc).kind === 'todo') as CloudEntityDoc[]
     const cloudRecurDocs = docs.filter((d) => (d as CloudEntityDoc).kind === 'recurring') as CloudEntityDoc[]
+
+    // 0. v0.8.5 消费对端注销凭条：算出本端回收站要物理删除的行（内存快照同步扣减，落库由 AppLayout 执行）
+    const toPurge: MarkRequest[] = []
+    const purgeConsume = new Map<string, number>()
+    for (const p of cloudPurges) {
+      if (p.source === 'desktop') continue // 自己传的凭条对应行早已本地删除，不重复消费
+      const n = Math.max(0, p.cancelRec || 0)
+      if (n > 0 && parseKey(p.targetKey)) purgeConsume.set(p.targetKey, (purgeConsume.get(p.targetKey) || 0) + n)
+    }
+    purgeConsume.forEach((count, k) => {
+      const parts = parseKey(k)
+      if (!parts) return
+      let left = count
+      for (let i = localRecords.length - 1; i >= 0 && left > 0; i--) {
+        if ((localRecords[i].deleted || 0) > 0 && recordKeyOf(localRecords[i]) === k) {
+          localRecords.splice(i, 1) // 内存快照先删，保证本轮所有配对基于"已物理删除"状态
+          left--
+        }
+      }
+      toPurge.push({ parts, count })
+    })
+
+    // 注销核销聚合：账单/凭证/凭条的"有效数" = 原始数 - 被注销数
+    const cancelRec = new Map<string, number>()
+    const cancelTomb = new Map<string, number>()
+    const cancelRev = new Map<string, number>()
+    for (const p of cloudPurges) {
+      cancelRec.set(p.targetKey, (cancelRec.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
+      cancelTomb.set(p.targetKey, (cancelTomb.get(p.targetKey) || 0) + Math.max(0, p.cancelTomb || 0))
+      cancelRev.set(p.targetKey, (cancelRev.get(p.targetKey) || 0) + Math.max(0, p.cancelRev || 0))
+    }
     const cloudRecCounts = countBy(cloudRecs.map(recordKeyOf))
     const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
     const cloudReviveCounts = countBy(cloudRevs.map((v) => v.targetKey))
+    const effRec = (k: string) => Math.max(0, (cloudRecCounts.get(k) || 0) - (cancelRec.get(k) || 0))
+    const effTomb = (k: string) => Math.max(0, (cloudTombCounts.get(k) || 0) - (cancelTomb.get(k) || 0))
+    const effRev = (k: string) => Math.max(0, (cloudReviveCounts.get(k) || 0) - (cancelRev.get(k) || 0))
     const localTotals = countBy(localRecords.map(recordKeyOf))            // 存活 + 已删
     // 凭证配额：死过一行 = 一张；每被恢复过一次 = 历史再多一张（配额 = D + V）
     const tombDonors: typeof localRecords = []
@@ -384,11 +452,27 @@ export async function performSync(
     const localReviveCounts = countBy(reviveDonors.map(recordKeyOf))
 
     const toUpload: NewCloudDoc[] = []
-    // 1. 补传账单：本键本地总行数超出云端账单数的部分（deleted/reviveCount 不上云，云端只存原始内容）
+    // 0d. v0.8.5 上传本端注销凭条（彻底删除队列，含离线积压）：pid 不在云端的才传，防重复核销
+    const cloudPurgePids = new Set(cloudPurges.map((p) => p.pid || ''))
+    const uploadingPurges: PendingPurge[] = []
+    for (const p of pendingPurges) {
+      if (!p.pid || cloudPurgePids.has(p.pid)) continue
+      toUpload.push({ kind: 'purge', pid: p.pid, targetKey: p.targetKey, cancelRec: p.cancelRec, cancelTomb: p.cancelTomb, cancelRev: p.cancelRev, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: p.label })
+      uploadingPurges.push(p)
+    }
+    if (uploadingPurges.length > 0) {
+      // 本轮配对立即按注销后计（刚删的行不会被旧计数倒灌回本地）
+      for (const p of uploadingPurges) {
+        cancelRec.set(p.targetKey, (cancelRec.get(p.targetKey) || 0) + Math.max(0, p.cancelRec))
+        cancelTomb.set(p.targetKey, (cancelTomb.get(p.targetKey) || 0) + Math.max(0, p.cancelTomb))
+        cancelRev.set(p.targetKey, (cancelRev.get(p.targetKey) || 0) + Math.max(0, p.cancelRev))
+      }
+    }
+    // 1. 补传账单：本键本地总行数超出云端有效账单数的部分（deleted/reviveCount 不上云，云端只存原始内容）
     const pushPerKey = new Map<string, number>()
     for (const r of localRecords) {
       const k = recordKeyOf(r)
-      const need = (localTotals.get(k) || 0) - (cloudRecCounts.get(k) || 0)
+      const need = (localTotals.get(k) || 0) - effRec(k)
       const done = pushPerKey.get(k) || 0
       if (need > 0 && done < need) {
         const { deleted: _dl, reviveCount: _rv, ...doc } = r
@@ -396,22 +480,22 @@ export async function performSync(
         pushPerKey.set(k, done + 1)
       }
     }
-    // 2a. 补传删除凭证：配额(D+V)超出云端凭证数的部分；label 供人在控制台看懂删的是哪笔
+    // 2a. 补传删除凭证：配额(D+V)超出云端有效凭证数的部分；label 供人在控制台看懂删的是哪笔
     const pushTombPerKey = new Map<string, number>()
     for (const r of tombDonors) {
       const k = recordKeyOf(r)
-      const need = (tombQuota.get(k) || 0) - (cloudTombCounts.get(k) || 0)
+      const need = (tombQuota.get(k) || 0) - effTomb(k)
       const done = pushTombPerKey.get(k) || 0
       if (need > 0 && done < need) {
         toUpload.push({ kind: 'tombstone', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: docLabel(r) })
         pushTombPerKey.set(k, done + 1)
       }
     }
-    // 2b. 补传撤销凭条：本地恢复数超出云端撤销数的部分（恢复也跨端生效）
+    // 2b. 补传撤销凭条：本地恢复数超出云端有效撤销数的部分（恢复也跨端生效）
     const pushRevPerKey = new Map<string, number>()
     for (const r of reviveDonors) {
       const k = recordKeyOf(r)
-      const need = (localReviveCounts.get(k) || 0) - (cloudReviveCounts.get(k) || 0)
+      const need = (localReviveCounts.get(k) || 0) - effRev(k)
       const done = pushRevPerKey.get(k) || 0
       if (need > 0 && done < need) {
         toUpload.push({ kind: 'revive', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: docLabel(r) })
@@ -424,24 +508,27 @@ export async function performSync(
     toUpload.push(...todoPlan.toUpload, ...recurPlan.toUpload)
 
     let uploaded = 0
+    const purgeUploadedPids: string[] = []
     if (toUpload.length > 0) {
       const up = await uploadRecords(toUpload)
       uploaded = up.uploaded
       // 该传却一条都没传上去 = 写入通道断了，必须把真实错误抱出来，不能再冒充"已最新"
       if (up.uploaded === 0) {
-        return { result: { success: false, uploaded: 0, downloaded: 0, error: `云端写入失败（${up.failed} 条未传）：${up.firstError || '未知原因'} — 请检查 records 集合是否存在、权限是否允许创建、匿名登录是否开启` }, newCloudRecords: [], toMark: [], toAlive: [], todoIncoming: [], recurringIncoming: [] }
+        return { result: { success: false, uploaded: 0, downloaded: 0, error: `云端写入失败（${up.failed} 条未传）：${up.firstError || '未知原因'} — 请检查 records 集合是否存在、权限是否允许创建、匿名登录是否开启` }, newCloudRecords: [], toMark: [], toAlive: [], toPurge, purgeUploadedPids: [], todoIncoming: [], recurringIncoming: [] }
       }
+      // 全部传成功才清本地凭条队列；部分失败留着，下轮靠 pid 去重只补漏网的（幂等，不会重复核销）
+      if (up.failed === 0) purgeUploadedPids.push(...uploadingPurges.map((p) => p.pid))
     }
 
-    // 3. 补拉账单：云端账单数超出本地总行数的差额（v0.8.3 去掉 lastSyncAt 时间窗：
+    // 3. 补拉账单：云端有效账单数超出本地总行数的差额（v0.8.3 去掉 lastSyncAt 时间窗：
     //    窗口会把"另一端在你上次同步之前传入"的数据永久漏拉；差额配对本身幂等，刚自己传的差额为 0 不倒灌）
     const rawDocs = docs
-    const rawRecs = rawDocs.filter((d) => !isTombstone(d) && !isRevive(d) && !isEntityDoc(d)) as CloudRecord[]
+    const rawRecs = rawDocs.filter((d) => !isTombstone(d) && !isRevive(d) && !isPurge(d) && !isEntityDoc(d)) as CloudRecord[]
     const takenPerKey = new Map<string, number>()
     const newCloudRecords: CloudRecord[] = []
     for (const r of rawRecs) {
       const k = recordKeyOf(r)
-      const cap = (cloudRecCounts.get(k) || 0) - (localTotals.get(k) || 0)
+      const cap = effRec(k) - (localTotals.get(k) || 0)
       const taken = takenPerKey.get(k) || 0
       if (cap > 0 && taken < cap) {
         takenPerKey.set(k, taken + 1)
@@ -449,14 +536,14 @@ export async function performSync(
       }
     }
 
-    // 4. 按净额跟随标删/恢复：净删除数 = max(凭证数 - 撤销数, 0)，和本地已删数比差额（不设窗口，必收敛）。
+    // 4. 按净额跟随标删/恢复：净删除数 = max(有效凭证数 - 有效撤销数, 0)，和本地已删数比差额（不设窗口，必收敛）。
     //    本轮刚补传的凭证/撤销也要计入净额，否则刚恢复的行会被旧凭证快照当场再标删（回灌）
     const toMark: MarkRequest[] = []
     const toAlive: MarkRequest[] = []
     const netDel = new Map<string, number>()
-    cloudTombCounts.forEach((n, k) => netDel.set(k, n))
+    cloudTombCounts.forEach((n, k) => netDel.set(k, Math.max(0, n - (cancelTomb.get(k) || 0))))
     pushTombPerKey.forEach((n, k) => netDel.set(k, (netDel.get(k) || 0) + n))
-    cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+    cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - Math.max(0, n - (cancelRev.get(k) || 0)))))
     pushRevPerKey.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
     netDel.forEach((cnt, k) => {
       const d = localDeadCounts.get(k) || 0
@@ -474,11 +561,13 @@ export async function performSync(
       newCloudRecords,
       toMark,
       toAlive,
+      toPurge,
+      purgeUploadedPids,
       todoIncoming: todoPlan.incoming,
       recurringIncoming: recurPlan.incoming,
     }
   } catch (e: any) {
-    return { result: { success: false, uploaded: 0, downloaded: 0, error: e.message }, newCloudRecords: [], toMark: [], toAlive: [], todoIncoming: [], recurringIncoming: [] }
+    return { result: { success: false, uploaded: 0, downloaded: 0, error: e.message }, newCloudRecords: [], toMark: [], toAlive: [], toPurge: [], purgeUploadedPids: [], todoIncoming: [], recurringIncoming: [] }
   }
 }
 

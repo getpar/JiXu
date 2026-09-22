@@ -96,6 +96,10 @@ interface ElectronAPI {
   markRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ marked: number }>
   restoreRecord: (id: number) => Promise<{ restored: number }>
   restoreRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ restored: number }>
+  purgeRecordById: (id: number) => Promise<{ ok: boolean; pid?: string }>
+  purgeLocalRecords: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ removed: number }>
+  listPurges: () => Promise<{ pid: string; target_key: string; cancel_rec: number; cancel_tomb: number; cancel_rev: number; label?: string }[]>
+  clearPurges: (pids: string[]) => Promise<{ cleared: number }>
   updateRecord: (id: number, data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string; person?: string }) => Promise<{ success: boolean }>
 
   // 统计

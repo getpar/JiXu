@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro'
 import { getCloudCollection, getOwnerId, taroStore } from './cloud'
-import { runSync, recordKey, parseRecordKey, SyncableRecord, SyncResult } from './cloudCore'
+import { runSync, recordKey, parseRecordKey, PendingPurge, SyncableRecord, SyncResult } from './cloudCore'
 
 // ========== 类型 ==========
 
@@ -49,6 +49,8 @@ export async function syncNow(force = false): Promise<SyncResult> {
     addLocal: mergeLocalRecords,
     markLocal: markLocalDeleted,
     markAlive: markLocalAlive,
+    purgeLocal: purgeLocalRecords,                          // v0.8.5 消费对端注销凭条
+    purges: { getPending: getPendingPurges, clearPending: clearPendingPurges }, // v0.8.5 上传本端注销凭条
     store: taroStore,
     // v0.7.3 待办/周期账单参与云同步（LWW 快照，与账单链路互不干扰）
     todos: { getLocal: getAllTodos, apply: applyCloudTodos },
@@ -110,6 +112,63 @@ async function markLocalAlive(key: string, count: number): Promise<number> {
   }
   if (revived > 0) saveLocalRecords(list)
   return revived
+}
+
+// ========== v0.8.5 彻底删除（回收站物理删除 + 注销凭条） ==========
+
+/** 待上传注销凭条队列（离线彻底删除也不丢，同步上传成功后按 pid 清除） */
+function getPendingPurges(): PendingPurge[] {
+  const raw = Taro.getStorageSync('purge_pending')
+  return raw ? (JSON.parse(raw) as PendingPurge[]) : []
+}
+
+function savePendingPurges(list: PendingPurge[]): void {
+  Taro.setStorageSync('purge_pending', JSON.stringify(list))
+}
+
+function clearPendingPurges(pids: string[]): void {
+  const gone = new Set(pids)
+  savePendingPurges(getPendingPurges().filter((p) => !gone.has(p.pid)))
+}
+
+/** 引擎消费对端注销凭条：按去重键物理删除 count 笔本地回收站行 */
+async function purgeLocalRecords(key: string, count: number): Promise<number> {
+  if (!parseRecordKey(key)) return 0
+  const list = await getAllRecords()
+  const kept: RecordItem[] = []
+  let removed = 0
+  for (const r of list) {
+    if (removed < count && r.deleted && recordKey(r) === key) { removed++; continue }
+    kept.push(r)
+  }
+  if (removed > 0) saveLocalRecords(kept)
+  return removed
+}
+
+/**
+ * 彻底删除回收站里的一笔：本地物理删除 + 生成注销凭条入队 + 立即同步上云。
+ * 凭条核销量 = 该行完整生命周期（1 张账单 + (1+V) 张删除凭证 + V 张撤销凭条），
+ * 对端同步后自己那份回收站行也会被物理删除，且云端计数配平、绝不回流复活。
+ */
+export async function purgeRecord(id: string): Promise<void> {
+  const list = await getAllRecords()
+  const rec = list.find((r) => String(r.id) === String(id))
+  if (!rec || !(rec.deleted || 0)) return
+  const v = rec.reviveCount || 0
+  const pend = getPendingPurges()
+  pend.push({
+    pid: `p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    targetKey: recordKey(rec),
+    cancelRec: 1,
+    cancelTomb: 1 + v,
+    cancelRev: v,
+    label: `${rec.date} ${rec.categoryName || ''}/${rec.subcategoryName || ''} ¥${rec.amount}${rec.note ? ' 备注:' + rec.note : ''}`,
+  })
+  savePendingPurges(pend)
+  saveLocalRecords(list.filter((r) => String(r.id) !== String(id)))
+  try {
+    await syncNow(true) // 把注销凭条推上云（失败不阻塞，队列会随下次同步补传）
+  } catch { /* ignore */ }
 }
 
 // ========== 记录 CRUD ==========

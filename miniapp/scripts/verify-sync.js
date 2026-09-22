@@ -21,6 +21,8 @@
  *   ⑭ 删除+恢复混战后的新设备 → 终态与双端完全一致
  *   ⑮ 待办跨端 LWW 快照同步：新增跟随/编辑跟随/软删不复活/收敛（v0.7.3）
  *   ⑯ 周期账单改下次日期 → 对端跟随不倒灌；多用户隔离同样生效（v0.7.3）
+ *   ⑰ 桌面彻底删除 → 注销凭条核销账单/凭证/撤销，对端回收站也清除，不回流（v0.8.5）
+ *   ⑱ 小程序离线彻底删除 → 队列补传 + pid 幂等不重复，桌面跟随清除（v0.8.5）
  */
 const path = require('path')
 const {
@@ -59,9 +61,11 @@ function docLabelOf(r) {
 
 function createDesktopDevice(cloud, ownerId) {
   let local = []
+  let pendingPurges = [] // v0.8.5 待上传注销凭条队列（彻底删除产生，离线也不丢）
   let lastSyncAt = 0
   const isTomb = (d) => d.kind === 'tombstone'
   const isRev = (d) => d.kind === 'revive'
+  const isPur = (d) => d.kind === 'purge'
   const device = {
     /** 模拟用户在桌面端记一笔（写进本地 SQLite） */
     appAdd(r) { local.push({ ...r, id: local.length + 1, deleted: 0, reviveCount: 0 }) },
@@ -88,18 +92,53 @@ function createDesktopDevice(cloud, ownerId) {
       rec.reviveCount = (rec.reviveCount || 0) + 1
       return rec
     },
+    /** 模拟回收站"彻底删除"（v0.8.5，与 records:purgeById 一致）：物理删行 + 注销凭条入队 */
+    appPurge(filterFn) {
+      const rec = local.find((r) => (r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('桌面端回收站没找到要彻底删除的记录')
+      const v = rec.reviveCount || 0
+      pendingPurges.push({ pid: `dpur_${now()}`, targetKey: recordKey(rec), cancelRec: 1, cancelTomb: 1 + v, cancelRev: v, label: docLabelOf(rec) })
+      local = local.filter((r) => r !== rec)
+      return rec
+    },
     getLocal: () => local,
     /** 页面可见记录（已删的不显示，但库里留底） */
     visible: () => local.filter((r) => !(r.deleted > 0)),
     /** 模拟桌面端点击"同步"按钮 */
     async performSync() {
       const docs = await cloud.listAll(ownerId)
-      const cloudRecs = docs.filter((d) => !isTomb(d) && !isRev(d))
+      const cloudPurges = docs.filter(isPur)
+      const cloudRecs = docs.filter((d) => !isTomb(d) && !isRev(d) && !isPur(d))
       const cloudTombs = docs.filter(isTomb)
       const cloudRevs = docs.filter(isRev)
+      // 0. v0.8.5 消费对端注销凭条：本端回收站那笔也物理删除（自己的不消费）
+      let purged = 0
+      const consume = new Map()
+      for (const p of cloudPurges) {
+        if (p.source === 'desktop') continue
+        consume.set(p.targetKey, (consume.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
+      }
+      consume.forEach((n, k) => {
+        let left = n
+        for (let i = local.length - 1; i >= 0 && left > 0; i--) {
+          if ((local[i].deleted || 0) > 0 && recordKey(local[i]) === k) { local.splice(i, 1); left--; purged++ }
+        }
+      })
+      // 注销核销聚合：有效数 = 原始数 - 被注销数
+      const cancelRec = new Map()
+      const cancelTomb = new Map()
+      const cancelRev = new Map()
+      for (const p of cloudPurges) {
+        cancelRec.set(p.targetKey, (cancelRec.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
+        cancelTomb.set(p.targetKey, (cancelTomb.get(p.targetKey) || 0) + Math.max(0, p.cancelTomb || 0))
+        cancelRev.set(p.targetKey, (cancelRev.get(p.targetKey) || 0) + Math.max(0, p.cancelRev || 0))
+      }
       const cloudRecCounts = countBy(cloudRecs.map(recordKey))
       const cloudTombCounts = countBy(cloudTombs.map((t) => t.targetKey))
       const cloudReviveCounts = countBy(cloudRevs.map((v) => v.targetKey))
+      const effRec = (k) => Math.max(0, (cloudRecCounts.get(k) || 0) - (cancelRec.get(k) || 0))
+      const effTomb = (k) => Math.max(0, (cloudTombCounts.get(k) || 0) - (cancelTomb.get(k) || 0))
+      const effRev = (k) => Math.max(0, (cloudReviveCounts.get(k) || 0) - (cancelRev.get(k) || 0))
       const localTotals = countBy(local.map(recordKey))            // 存活 + 已删
       const deadList = local.filter((r) => (r.deleted || 0) > 0)
       const localDeadCounts = countBy(deadList.map(recordKey))
@@ -112,12 +151,23 @@ function createDesktopDevice(cloud, ownerId) {
       }
       const tombQuota = countBy(tombDonors.map(recordKey))
       const localReviveCounts = countBy(reviveDonors.map(recordKey))
-      // 1. 补传账单：本地总行数超出云端账单数的部分（已删行也算底数）
       let uploaded = 0
+      // 0d. v0.8.5 上传本端注销凭条（pid 不在云端的才传，防重复核销）
+      const cloudPids = new Set(cloudPurges.map((p) => p.pid))
+      const uploading = pendingPurges.filter((p) => !cloudPids.has(p.pid))
+      for (const p of uploading) {
+        await cloud.add({ kind: 'purge', ...p, ownerId, updatedAt: now(), source: 'desktop' })
+        uploaded++
+        cancelRec.set(p.targetKey, (cancelRec.get(p.targetKey) || 0) + p.cancelRec)
+        cancelTomb.set(p.targetKey, (cancelTomb.get(p.targetKey) || 0) + p.cancelTomb)
+        cancelRev.set(p.targetKey, (cancelRev.get(p.targetKey) || 0) + p.cancelRev)
+      }
+      pendingPurges = pendingPurges.filter((p) => !uploading.includes(p))
+      // 1. 补传账单：本地总行数超出云端有效账单数的部分（已删行也算底数）
       const pushPerKey = new Map()
       for (const r of local) {
         const k = recordKey(r)
-        const need = (localTotals.get(k) || 0) - (cloudRecCounts.get(k) || 0)
+        const need = (localTotals.get(k) || 0) - effRec(k)
         const done = pushPerKey.get(k) || 0
         if (need > 0 && done < need) {
           await cloud.add(localToCloud(r, 'desktop', now(), ownerId))
@@ -125,11 +175,11 @@ function createDesktopDevice(cloud, ownerId) {
           pushPerKey.set(k, done + 1)
         }
       }
-      // 2a. 补传删除凭证：配额(D+V)超出云端凭证数的部分
+      // 2a. 补传删除凭证：配额(D+V)超出云端有效凭证数的部分
       const pushTomb = new Map()
       for (const r of tombDonors) {
         const k = recordKey(r)
-        const need = (tombQuota.get(k) || 0) - (cloudTombCounts.get(k) || 0)
+        const need = (tombQuota.get(k) || 0) - effTomb(k)
         const done = pushTomb.get(k) || 0
         if (need > 0 && done < need) {
           await cloud.add({ kind: 'tombstone', targetKey: k, ownerId, updatedAt: now(), source: 'desktop', label: docLabelOf(r) })
@@ -137,11 +187,11 @@ function createDesktopDevice(cloud, ownerId) {
           pushTomb.set(k, done + 1)
         }
       }
-      // 2b. 补传撤销凭条：本地恢复数超出云端撤销数的部分
+      // 2b. 补传撤销凭条：本地恢复数超出云端有效撤销数的部分
       const pushRev = new Map()
       for (const r of reviveDonors) {
         const k = recordKey(r)
-        const need = (localReviveCounts.get(k) || 0) - (cloudReviveCounts.get(k) || 0)
+        const need = (localReviveCounts.get(k) || 0) - effRev(k)
         const done = pushRev.get(k) || 0
         if (need > 0 && done < need) {
           await cloud.add({ kind: 'revive', targetKey: k, ownerId, updatedAt: now(), source: 'desktop', label: docLabelOf(r) })
@@ -149,13 +199,14 @@ function createDesktopDevice(cloud, ownerId) {
           pushRev.set(k, done + 1)
         }
       }
-      // 3. 补拉账单：首同步全量，之后按 updatedAt 增量；差额驱动防重复
-      const raw = lastSyncAt === 0 ? cloudRecs : cloudRecs.filter((r) => (r.updatedAt || 0) > lastSyncAt)
-      const cloudAllCounts = new Map(cloudRecCounts)
+      // 3. 补拉账单：差额驱动防重复（v0.8.3 去掉时间窗，与真实 performSync 对齐）
+      const cloudAllCounts = new Map()
+      cancelRec.forEach((n, k) => cloudAllCounts.set(k, Math.max(0, (cloudRecCounts.get(k) || 0) - n)))
+      cloudRecCounts.forEach((n, k) => { if (!cloudAllCounts.has(k)) cloudAllCounts.set(k, n) })
       pushPerKey.forEach((n, k) => cloudAllCounts.set(k, (cloudAllCounts.get(k) || 0) + n))
       const takenPerKey = new Map()
       let downloaded = 0
-      for (const r of raw) {
+      for (const r of cloudRecs) {
         const k = recordKey(r)
         const cap = (cloudAllCounts.get(k) || 0) - (localTotals.get(k) || 0)
         const taken = takenPerKey.get(k) || 0
@@ -165,13 +216,13 @@ function createDesktopDevice(cloud, ownerId) {
           downloaded++
         }
       }
-      // 4. 按净额跟随标删/恢复：净删除 = max(T - R, 0)，不设窗口，必收敛；本轮刚传的凭证/撤销也计入净额
+      // 4. 按净额跟随标删/恢复：净删除 = max(有效凭证 - 有效撤销, 0)，不设窗口，必收敛；本轮刚传的凭证/撤销也计入
       let marked = 0
       let revived = 0
       const netDel = new Map()
-      cloudTombCounts.forEach((n, k) => netDel.set(k, n))
+      cloudTombCounts.forEach((n, k) => netDel.set(k, Math.max(0, n - (cancelTomb.get(k) || 0))))
       pushTomb.forEach((n, k) => netDel.set(k, (netDel.get(k) || 0) + n))
-      cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
+      cloudReviveCounts.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - Math.max(0, n - (cancelRev.get(k) || 0)))))
       pushRev.forEach((n, k) => netDel.set(k, Math.max(0, (netDel.get(k) || 0) - n)))
       netDel.forEach((cnt, k) => {
         const d = localDeadCounts.get(k) || 0
@@ -194,7 +245,7 @@ function createDesktopDevice(cloud, ownerId) {
         }
       })
       lastSyncAt = now()
-      return { uploaded, downloaded, marked, revived }
+      return { uploaded, downloaded, marked, revived, purged }
     },
   }
   return device
@@ -204,6 +255,7 @@ function createDesktopDevice(cloud, ownerId) {
 
 function createMiniappDevice(cloud, ownerId) {
   let local = []
+  let pendingPurges = [] // v0.8.5 待上传注销凭条队列
   const store = memoryStore()
   async function addLocal(recs) {
     let added = 0
@@ -236,8 +288,25 @@ function createMiniappDevice(cloud, ownerId) {
     }
     return done
   }
+  /** 模拟 storage.ts purgeLocalRecords（v0.8.5）：按去重键物理删除回收站行 */
+  async function purgeLocal(key, count) {
+    let done = 0
+    for (let i = local.length - 1; i >= 0 && done < count; i--) {
+      if ((local[i].deleted || 0) > 0 && recordKey(local[i]) === key) { local.splice(i, 1); done++ }
+    }
+    return done
+  }
   function sync() {
-    return runSync({ cloud, source: 'miniapp', ownerId, getLocal: async () => local, addLocal, markLocal, markAlive: markLocalAlive, store, now })
+    return runSync({
+      cloud, source: 'miniapp', ownerId,
+      getLocal: async () => local, addLocal, markLocal, markAlive: markLocalAlive,
+      purgeLocal,
+      purges: {
+        getPending: () => pendingPurges,
+        clearPending: (pids) => { const gone = new Set(pids); pendingPurges = pendingPurges.filter((p) => !gone.has(p.pid)) },
+      },
+      store, now,
+    })
   }
   return {
     /** 模拟 storage.ts addRecord：写本地 + 立即触发一次同步（由引擎按笔数上云），返回同步结果 */
@@ -267,6 +336,16 @@ function createMiniappDevice(cloud, ownerId) {
       rec.deleted = 0
       rec.reviveCount = (rec.reviveCount || 0) + 1
       return sync()
+    },
+    /** 模拟回收站"彻底删除"（v0.8.5，与 storage.ts purgeRecord 一致）：物理删行 + 注销凭条入队。
+     *  故意不自动 sync —— 验证离线积压场景，由测试显式调用 sync() 补传 */
+    appPurge(filterFn) {
+      const rec = local.find((r) => (r.deleted > 0) && filterFn(r))
+      if (!rec) throw new Error('小程序回收站没找到要彻底删除的记录')
+      const v = rec.reviveCount || 0
+      pendingPurges.push({ pid: `mpur_${now()}`, targetKey: recordKey(rec), cancelRec: 1, cancelTomb: 1 + v, cancelRev: v, label: docLabelOf(rec) })
+      local = local.filter((r) => r !== rec)
+      return rec
     },
     getLocal: () => local,
     visible: () => local.filter((r) => !(r.deleted > 0)),
@@ -541,6 +620,48 @@ async function main() {
   er = await bobEnt.sync()
   assert(er.ok && er.pushed === 0 && er.pulled === 0 && bobEnt.holder.todos.length === 0 && bobEnt.holder.recurring.length === 0,
     'B 户（不同同步码）完全看不到 A 户的待办/周期快照')
+
+  console.log('\n【场景⑰】v0.8.5 彻底删除：桌面删→小程序跟标删→桌面彻底删除→小程序回收站也清除，不回流')
+  const lunchA = (r) => r.amount === 25 && r.date === '2026-09-18'
+  desktop.appDelete(lunchA)
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 1, `桌面删午餐 ¥25 → 上云 1 凭证（uploaded=${dr.uploaded}）`)
+  mr = await miniapp.sync()
+  assert(mr.ok && mr.pushed === 0 && mr.pulled === 1 && miniapp.getLocal().some((r) => lunchA(r) && r.deleted === 1),
+    '小程序跟随标删，回收站留底（pulled=${mr.pulled}）')
+  desktop.appPurge(lunchA) // 桌面回收站彻底删除（本地物理删行 + 注销凭条入队）
+  assert(!desktop.getLocal().some(lunchA), '桌面本地库已物理删除，回收站也没有了')
+  dr = await desktop.performSync()
+  assert(dr.uploaded === 1 && dr.downloaded === 0 && dr.marked === 0 && dr.revived === 0,
+    `桌面同步：只补传 1 条注销凭条，已删账单不复活不回填（uploaded=${dr.uploaded}）`)
+  mr = await miniapp.sync()
+  assert(mr.ok && !miniapp.getLocal().some(lunchA), '小程序消费凭条：回收站那笔也物理删除')
+  dr = await desktop.performSync(); mr = await miniapp.sync()
+  assert(dr.uploaded === 0 && dr.downloaded === 0 && mr.pushed === 0 && mr.pulled === 0,
+    '收敛：彻底删除后再同步 0 进 0 出，注销凭条不重复上传、账单不回流')
+  const freshP = createMiniappDevice(cloud, HOUSE_A)
+  mr = await freshP.sync()
+  assert(mr.ok && !freshP.getLocal().some(lunchA), '新设备输入同步码 → 被彻底删除的账永远拉不到')
+
+  console.log('\n【场景⑱】v0.8.5 小程序离线彻底删除 → 队积压补传 + pid 幂等 → 桌面回收站跟随清除')
+  const co = (r) => r.amount === 18 && r.date === '2026-09-21'
+  mr = await miniapp.appDelete(co)
+  assert(mr.pushed === 1 && mr.pulled === 0, `小程序删咖啡 ¥18 → 推 1 凭证（pushed=${mr.pushed}）`)
+  dr = await desktop.performSync()
+  assert(dr.marked === 1, '桌面跟随标删，进回收站')
+  miniapp.appPurge(co) // 只入队不同步，模拟离线彻底删除
+  assert(!miniapp.getLocal().some(co), '小程序本地已物理删行')
+  mr = await miniapp.sync()
+  assert(mr.ok && mr.pushed === 1 && mr.pulled === 0, `联网补传：注销凭条补上云 1 条（pushed=${mr.pushed}）`)
+  const purgeDocs1 = (await cloud.listAll(HOUSE_A)).filter((d) => d.kind === 'purge').length
+  mr = await miniapp.sync()
+  const purgeDocs2 = (await cloud.listAll(HOUSE_A)).filter((d) => d.kind === 'purge').length
+  assert(mr.pushed === 0 && purgeDocs2 === purgeDocs1, `pid 幂等：再同步不重复传凭条（云端 purge 文档仍 ${purgeDocs2} 条）`)
+  dr = await desktop.performSync()
+  assert(!desktop.getLocal().some(co), '桌面消费凭条：回收站那杯咖啡也物理删除')
+  dr = await desktop.performSync(); mr = await miniapp.sync()
+  assert(dr.uploaded === 0 && dr.downloaded === 0 && dr.revived === 0 && mr.pushed === 0 && mr.pulled === 0,
+    '收敛：小程序端彻底删除全链路走完后再同步 0 进 0 出')
 
   // ---- 汇总 ----
 

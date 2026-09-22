@@ -41,6 +41,17 @@ function RecycleBinPage(): JSX.Element {
     }
   }
 
+  // v0.8.5 彻底删除：本地物理删除 + 注销凭条入队，点「云同步」后所有设备的回收站都会清掉这一笔
+  async function handlePurge(id: number): Promise<void> {
+    const res = await window.electronAPI.purgeRecordById(id)
+    if (res?.ok) {
+      message.success('已彻底删除！点击「云同步」可让其它设备跟着清除')
+      loadData()
+    } else {
+      message.warning('这条记录已经不在回收站了')
+    }
+  }
+
   const columns = [
     { title: '日期', dataIndex: 'record_date', key: 'date', width: 110 },
     {
@@ -57,11 +68,16 @@ function RecycleBinPage(): JSX.Element {
     },
     { title: '备注', dataIndex: 'note', key: 'note', ellipsis: true, render: (v: string) => v || '-' },
     {
-      title: '操作', key: 'action', width: 110,
+      title: '操作', key: 'action', width: 210,
       render: (_: any, r: any) => (
-        <Popconfirm title="恢复这笔记录？" description="恢复后账单页面会重新显示它" onConfirm={() => handleRestore(r.id)}>
-          <Button size="small" type="primary" ghost icon={<UndoOutlined />}>恢复</Button>
-        </Popconfirm>
+        <Space size={8}>
+          <Popconfirm title="恢复这笔记录？" description="恢复后账单页面会重新显示它" onConfirm={() => handleRestore(r.id)}>
+            <Button size="small" type="primary" ghost icon={<UndoOutlined />}>恢复</Button>
+          </Popconfirm>
+          <Popconfirm title="彻底删除？" description="将从这台电脑和所有设备上永久清除，无法恢复" okText="彻底删除" okButtonProps={{ danger: true }} onConfirm={() => handlePurge(r.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>彻底删除</Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]

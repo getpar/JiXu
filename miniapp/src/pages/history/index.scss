@@ -40,6 +40,7 @@
 .trash-record { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border-top: 1rpx solid var(--soft); opacity: 0.75; }
 .trash-amount { font-size: 30rpx; font-weight: 700; white-space: nowrap; display: block; font-variant-numeric: tabular-nums; color: var(--muted); text-decoration: line-through; }
 .restore-btn { font-size: 24rpx; color: #10B981; font-weight: 600; }
+.purge-btn { font-size: 24rpx; color: #EF4444; font-weight: 600; margin-left: 20rpx; }
 
 /* 编辑弹窗 */
 .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }

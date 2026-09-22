@@ -75,6 +75,18 @@ async function initDatabase(): Promise<void> {
     db.run('ALTER TABLE records ADD COLUMN revive_count INTEGER NOT NULL DEFAULT 0')
     saveDatabase()
   }
+  // v0.8.5 彻底删除：本地待上传的"注销凭条"队列（离线删除也不丢，同步上传成功后按 pid 清除）
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sync_purges (
+      pid TEXT PRIMARY KEY,
+      target_key TEXT NOT NULL,
+      cancel_rec INTEGER NOT NULL DEFAULT 1,
+      cancel_tomb INTEGER NOT NULL DEFAULT 1,
+      cancel_rev INTEGER NOT NULL DEFAULT 0,
+      label TEXT DEFAULT '',
+      created_at INTEGER NOT NULL
+    )
+  `)
   // v0.8.0：记录人（谁花的，可选，随云同步跨端）
   if (!colNames.has('person')) {
     db.run("ALTER TABLE records ADD COLUMN person TEXT DEFAULT ''")
@@ -428,6 +440,60 @@ function setupIPC(): void {
     const restored = changed[0]?.values[0]?.[0] || 0
     if (restored) saveDatabase()
     return { restored }
+  })
+
+  // v0.8.5 彻底删除（回收站行）：本地物理删除 + 生成"注销凭条"入待上传队列。
+  // 核销量 = 该行完整生命周期：1 张账单 + (1+V) 张删除凭证 + V 张撤销凭条，保证云端计数配平不回流
+  ipcMain.handle('records:purgeById', (_event, id: number) => {
+    const res = db!.exec(
+      'SELECT record_date, amount, subcategory_key, type, revive_count, note FROM records WHERE id = ? AND deleted = 1',
+      [id],
+    )
+    const v = res[0]?.values?.[0] as [string, number, string, string, number, string] | undefined
+    if (!v) return { ok: false }
+    const [date, amount, subcat, type, reviveCount, note] = v
+    const targetKey = `${date}|${amount}|${subcat || ''}|${type}`
+    const pid = `p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+    const label = `${date} ¥${amount}${note ? ' 备注:' + note : ''}`
+    db!.run('DELETE FROM records WHERE id = ? AND deleted = 1', [id])
+    db!.run(
+      'INSERT OR REPLACE INTO sync_purges (pid, target_key, cancel_rec, cancel_tomb, cancel_rev, label, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [pid, targetKey, 1, 1 + (reviveCount || 0), reviveCount || 0, label, Date.now()],
+    )
+    saveDatabase()
+    return { ok: true, pid }
+  })
+
+  // v0.8.5 同步引擎消费对端注销凭条：按指纹物理删除回收站行（不产生新凭条，凭条已在云端）
+  ipcMain.handle('records:purgeLocal', (_event, parts: {
+    date: string; amount: number; subcategoryKey: string; type: string
+  }, count: number) => {
+    db!.run(
+      `DELETE FROM records WHERE id IN (
+         SELECT id FROM records
+         WHERE deleted = 1 AND record_date = ? AND amount = ? AND subcategory_key = ? AND type = ?
+         LIMIT ?
+       )`,
+      [parts.date, parts.amount, parts.subcategoryKey, parts.type, count]
+    )
+    const changed = db!.exec('SELECT changes()')
+    const removed = changed[0]?.values[0]?.[0] || 0
+    if (removed) saveDatabase()
+    return { removed }
+  })
+
+  // v0.8.5 注销凭条队列：同步时读取待上传项 / 上传成功后按 pid 清除
+  ipcMain.handle('purges:list', () => {
+    const res = db!.exec('SELECT pid, target_key, cancel_rec, cancel_tomb, cancel_rev, label FROM sync_purges ORDER BY created_at')
+    if (!res.length) return []
+    const cols = res[0].columns
+    return res[0].values.map((v) => Object.fromEntries(cols.map((c, i) => [c, v[i]])))
+  })
+
+  ipcMain.handle('purges:clear', (_event, pids: string[]) => {
+    for (const pid of pids || []) db!.run('DELETE FROM sync_purges WHERE pid = ?', [pid])
+    if (pids?.length) saveDatabase()
+    return { cleared: pids.length }
   })
 
   // v0.6.7 同步引擎拉到云端"撤销凭条"后，按指纹把本地已删记录恢复存活（优先恢复恢复次数少的行）
