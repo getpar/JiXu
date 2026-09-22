@@ -116,10 +116,13 @@ function createWxCloudCollection(): CloudCollection | null {
     const col = db.collection('records')
     return {
       async listAll(ownerId: string): Promise<CloudDoc[]> {
-        // 只拉本户（同同步码）的文档（账单+删除凭证+撤销凭条混合）；小程序端单次最多取 100 条，循环分页拉全
+        // 只拉本户（同同步码）的文档（账单+删除凭证+撤销凭条混合）
+        // ⚠️ v0.8.4 关键修正：微信小程序端 collection.get 单次上限是 20 条（非 100）！
+        // 传 limit(100) 不报错但被微信静默截断返回 20，旧代码据此误判"已拉完"停止翻页，
+        // 导致云端超过 20 条后的新数据（另一端刚传的）永远拉不到 — "只存不拉"真正根因
         const all: CloudDoc[] = []
         let offset = 0
-        const limit = 100
+        const limit = 20
         while (true) {
           const res = await col.where({ ownerId }).orderBy('updatedAt', 'asc').skip(offset).limit(limit).get()
           const rows = (res.data || []) as CloudDoc[]
