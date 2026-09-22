@@ -112,7 +112,6 @@ export default function Stats(): JSX.Element {
 
       {stats.length === 0 ? (
         <View className='empty-state'>
-          <Text className='empty-icon'>📊</Text>
           <Text className='empty-text'>暂无数据</Text>
           <Text className='empty-hint'>记一笔账后这里就会出现统计图表</Text>
         </View>
@@ -121,9 +120,9 @@ export default function Stats(): JSX.Element {
           {/* ====== v0.7.9 月度报告：人话总结这个月（仅支出视角） ====== */}
           {type === 'expense' && (
             <View className='card report-card'>
-              <Text className='section-title'>📋 本月报告</Text>
+              <Text className='section-title'>本月报告</Text>
               <View className='report-line'>
-                <Text className='report-dot'>💸</Text>
+                <Text className='report-dot'>·</Text>
                 <Text className='report-text'>
                   这个月花了 <Text className='report-strong'>¥{total.toFixed(0)}</Text>
                   {momPct === null ? '，还没有上月数据可比' : momPct >= 0
@@ -133,7 +132,7 @@ export default function Stats(): JSX.Element {
               </View>
               {stats[0] && (
                 <View className='report-line'>
-                  <Text className='report-dot'>👑</Text>
+                  <Text className='report-dot'>·</Text>
                   <Text className='report-text'>
                     大头是「{stats[0].categoryName}」¥{stats[0].total.toFixed(0)}
                     ，占 {total > 0 ? ((stats[0].total / total) * 100).toFixed(0) : 0}%
@@ -145,7 +144,7 @@ export default function Stats(): JSX.Element {
                 const days = new Set(expRecs.map((r) => r.date)).size
                 return (
                   <View className='report-line'>
-                    <Text className='report-dot'>🧾</Text>
+                    <Text className='report-dot'>·</Text>
                     <Text className='report-text'>共 {expRecs.length} 笔 · 记了 {days} 天</Text>
                   </View>
                 )
@@ -156,7 +155,7 @@ export default function Stats(): JSX.Element {
                 const maxRec = expRecs.reduce((a, b) => (b.amount > a.amount ? b : a))
                 return (
                   <View className='report-line'>
-                    <Text className='report-dot'>🔍</Text>
+                    <Text className='report-dot'>·</Text>
                     <Text className='report-text'>最大一笔：¥{maxRec.amount.toFixed(0)} · {maxRec.subcategoryName}（{maxRec.date.slice(5)}）</Text>
                   </View>
                 )
@@ -176,7 +175,7 @@ export default function Stats(): JSX.Element {
 
           {/* ====== v0.7.6 环形饼图：分类占比一眼看 ====== */}
           <View className='card'>
-            <Text className='section-title'>🥧 分类饼图</Text>
+            <Text className='section-title'>分类饼图</Text>
             <View className='pie-wrap'>
               <View className='pie' style={{ background: buildConic(stats, total) }}>
                 <View className='pie-hole'>
@@ -201,7 +200,7 @@ export default function Stats(): JSX.Element {
 
           {/* ====== 柱状图：分类对比 ====== */}
           <View className='card'>
-            <Text className='section-title'>📊 分类对比</Text>
+            <Text className='section-title'>分类对比</Text>
             <View className='bar-chart'>
               {stats.map((s) => {
                 const h = Math.max((s.total / maxAmount) * 100, 4)
@@ -219,7 +218,7 @@ export default function Stats(): JSX.Element {
 
           {/* ====== 横向进度条：分类占比 ====== */}
           <View className='card'>
-            <Text className='section-title'>🍩 分类占比</Text>
+            <Text className='section-title'>分类占比</Text>
             {stats.map((s, i) => {
               const pct = total > 0 ? (s.total / total) * 100 : 0
               const color = catColors[s.categoryKey] || '#6B7280'
@@ -246,7 +245,7 @@ export default function Stats(): JSX.Element {
           {/* ====== 每日趋势 ====== */}
           {trend.length >= 2 && (
             <View className='card'>
-              <Text className='section-title'>📈 每日趋势</Text>
+              <Text className='section-title'>每日趋势</Text>
               <View className='trend-chart'>
                 {trend.map((d) => {
                   const h = Math.max((d.total / maxTrend) * 100, 3)
@@ -268,7 +267,7 @@ export default function Stats(): JSX.Element {
       {hasMonthData && (
         <View className='card'>
           <View className='month-head'>
-            <Text className='section-title' style={{ marginBottom: 0 }}>📅 月度对比</Text>
+            <Text className='section-title' style={{ marginBottom: 0 }}>月度对比</Text>
             {momPct !== null && (
               <Text className={`month-mom ${momPct > 0 ? 'red' : 'green'}`}>
                 较上月 {momPct > 0 ? '↑' : '↓'}{Math.abs(momPct).toFixed(0)}%

@@ -109,7 +109,7 @@ export default function Recurring(): JSX.Element {
       {/* 顶栏 */}
       <View className='top-bar'>
         <Text className='back-btn' onClick={() => Taro.navigateBack()}>← 返回</Text>
-        <Text className='title'>🔁 周期账单</Text>
+        <Text className='title'>周期账单</Text>
         <Text className='placeholder' />
       </View>
 
@@ -126,7 +126,6 @@ export default function Recurring(): JSX.Element {
       {/* 列表 */}
       {bills.length === 0 ? (
         <View className='empty'>
-          <Text className='empty-icon'>📋</Text>
           <Text>暂无周期账单</Text>
         </View>
       ) : (
@@ -158,7 +157,7 @@ export default function Recurring(): JSX.Element {
                 <Text>{b.isActive ? '已启用' : '已停用'}</Text>
               </View>
               <View className='exec-btn' onClick={() => handleExecute(b)}>
-                <Text>⚡ 立即记录</Text>
+                <Text>立即记录</Text>
               </View>
               <View className='del-btn' onClick={() => handleDelete(b.id)}>
                 <Text>删除</Text>

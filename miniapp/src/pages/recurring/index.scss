@@ -11,7 +11,7 @@
 .hint Text { font-size: 26rpx; color: #B45309; line-height: 1.6; }
 
 /* ---- 添加按钮 ---- */
-.add-btn { background: linear-gradient(135deg, #FF6B35, #FF8555); border-radius: 18rpx; padding: 22rpx; text-align: center; margin-bottom: 20rpx; box-shadow: 0 4rpx 16rpx rgba(255,107,53,0.25); }
+.add-btn { background: #FF6B35; border-radius: 18rpx; padding: 22rpx; text-align: center; margin-bottom: 20rpx; box-shadow: 0 4rpx 16rpx rgba(255,107,53,0.25); }
 .add-btn-text { color: #fff; font-size: 30rpx; font-weight: 700; }
 
 /* ---- 空态 ---- */
@@ -19,7 +19,7 @@
 .empty-icon { font-size: 56rpx; display: block; margin-bottom: 16rpx; }
 
 /* ---- 账单卡片 ---- */
-.bill-card { background: var(--card); border-radius: 28rpx; padding: 24rpx 28rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 16rpx rgba(0,0,0,0.04); }
+.bill-card { background: var(--card); border-radius: 24rpx; padding: 24rpx 28rpx; margin-bottom: 16rpx; border: 1rpx solid var(--line); }
 .bill-card.inactive { opacity: 0.5; }
 .bill-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14rpx; }
 .bill-type-row { display: flex; align-items: center; gap: 10rpx; }
@@ -49,7 +49,7 @@
 
 /* ---- 弹窗 ---- */
 .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: var(--card); border-radius: 28rpx; padding: 36rpx; width: 88%; max-width: 600rpx; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
+.modal-box { background: var(--card); border-radius: 24rpx; padding: 36rpx; width: 88%; max-width: 600rpx; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
 .modal-title { font-size: 34rpx; font-weight: 700; display: block; margin-bottom: 28rpx; color: var(--text); }
 
 .form-item { margin-bottom: 20rpx; }
