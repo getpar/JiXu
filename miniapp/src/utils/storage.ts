@@ -15,6 +15,7 @@ export interface RecordItem {
   note: string
   date: string
   person?: string       // v0.8.0 记录人（谁花的，可选，随云同步跨端）
+  photo?: string        // v0.8.1 拍照凭证：本机持久文件路径（仅存手机，不上云）
   deleted?: number      // v0.6.6 软删除：1 = 已删（页面不显示，数据留底可恢复）；undefined/0 = 正常
   reviveCount?: number  // v0.6.7 被恢复过的次数（同步用：历史删除凭证配额 = 已删 + 恢复次数）
 }

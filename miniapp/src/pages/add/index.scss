@@ -37,5 +37,19 @@
 }
 .person-chip-active { background: #FF6B35; color: #fff; font-weight: 600; }
 
+/* v0.8.1 拍照凭证 */
+.photo-wrap { position: relative; width: 160rpx; height: 160rpx; }
+.photo-thumb { width: 160rpx; height: 160rpx; border-radius: 16rpx; border: 2rpx solid var(--soft); }
+.photo-del {
+  position: absolute; top: -14rpx; right: -14rpx; width: 40rpx; height: 40rpx;
+  border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff;
+  font-size: 28rpx; display: flex; align-items: center; justify-content: center;
+}
+.photo-add {
+  width: 160rpx; height: 160rpx; border-radius: 16rpx;
+  border: 2rpx dashed #CBD5E1; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 24rpx; background: var(--soft);
+}
+
 /* 提交按钮 */
 .submit-btn { background: linear-gradient(135deg, #FF6B35, #FF8555); color: #fff; text-align: center; padding: 24rpx; border-radius: 18rpx; font-size: 32rpx; font-weight: 700; margin-top: 28rpx; box-shadow: 0 4rpx 16rpx rgba(255,107,53,0.3); }

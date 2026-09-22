@@ -310,6 +310,7 @@ export default function Index(): JSX.Element {
                 <View className='record-btm'>
                   <Text className='record-date'>{r.date}</Text>
                   {r.note ? <Text className='record-note'>· {r.note}</Text> : null}
+                  {r.photo ? <Text className='record-note' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>· 📷</Text> : null}
                 </View>
               </View>
             </View>

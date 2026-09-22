@@ -175,6 +175,9 @@ export default function History(): JSX.Element {
               <View className='record-tags'>
                 <Text className='tag orange'>{r.categoryName}</Text>
                 <Text className='tag'>{r.subcategoryName}</Text>
+                {r.photo ? (
+                  <Text className='tag photo-tag' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>📷 凭证</Text>
+                ) : null}
               </View>
               <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
             </View>
