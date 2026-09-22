@@ -392,7 +392,7 @@ export async function performSync(
       const done = pushPerKey.get(k) || 0
       if (need > 0 && done < need) {
         const { deleted: _dl, reviveCount: _rv, ...doc } = r
-        toUpload.push({ ...doc, updatedAt: Date.now() })
+        toUpload.push({ ...doc, source: 'desktop', updatedAt: Date.now() })
         pushPerKey.set(k, done + 1)
       }
     }
@@ -433,9 +433,9 @@ export async function performSync(
       }
     }
 
-    // 3. 补拉账单：云端账单数超出本地总行数的差额，限上次同步后写入的（刚自己传的因差额为 0 不倒灌）
-    const meta = await getSyncMeta()
-    const rawDocs = meta ? await downloadSince(meta.lastSyncAt) : docs
+    // 3. 补拉账单：云端账单数超出本地总行数的差额（v0.8.3 去掉 lastSyncAt 时间窗：
+    //    窗口会把"另一端在你上次同步之前传入"的数据永久漏拉；差额配对本身幂等，刚自己传的差额为 0 不倒灌）
+    const rawDocs = docs
     const rawRecs = rawDocs.filter((d) => !isTombstone(d) && !isRevive(d) && !isEntityDoc(d)) as CloudRecord[]
     const takenPerKey = new Map<string, number>()
     const newCloudRecords: CloudRecord[] = []

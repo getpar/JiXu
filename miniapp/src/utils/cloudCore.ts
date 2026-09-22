@@ -413,12 +413,11 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
       }
     }
 
-    // 3. 补拉账单：云端账单数超出本地总行数，限上次同步后写入的（刚自己传上去的因计数平衡不会倒灌）
-    const lastSync = Number(deps.store.get(lastSyncKey(deps.ownerId)) || 0)
+    // 3. 补拉账单：云端账单数超出本地总行数的差额（v0.8.3 去掉时间窗：窗口会把"另一端在你上次同步
+    //    之前传入"的数据永久漏拉；笔数差额本身幂等——刚自己传的因差额为 0 不倒灌，addLocal 按 _id 防重）
     const takenPerKey = new Map<string, number>()
     const incoming: CloudRecord[] = []
     for (const r of cloudRecs) {
-      if ((r.updatedAt || 0) <= lastSync) continue
       const k = recordKey(r)
       const cap = (cloudRecCounts.get(k) || 0) - (localTotals.get(k) || 0)
       const taken = takenPerKey.get(k) || 0

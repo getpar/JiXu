@@ -35,7 +35,10 @@ export function localDateStr(d: Date = new Date()): string {
  * v0.6.6：删除/编辑通过"删除凭证 + 新增"参与同步（软删除，集合权限不变、无需云函数）。
  */
 export async function syncNow(): Promise<SyncResult> {
-  return runSync({
+  // v0.8.3 并发锁：冷启动时 app.tsx + 首页 show + 周期检查会几乎同时触发多路同步，
+  // 并发跑会互相"看不见"对方在传的数据导致同一笔重复上传，这里合并为同一趟
+  if (syncInFlight) return syncInFlight
+  syncInFlight = runSync({
     cloud: getCloudCollection(),
     source: 'miniapp',
     ownerId: getOwnerId(),
@@ -47,8 +50,10 @@ export async function syncNow(): Promise<SyncResult> {
     // v0.7.3 待办/周期账单参与云同步（LWW 快照，与账单链路互不干扰）
     todos: { getLocal: getAllTodos, apply: applyCloudTodos },
     recurring: { getLocal: getAllRecurringBills, apply: applyCloudRecurringBills },
-  })
+  }).finally(() => { syncInFlight = null })
+  return syncInFlight
 }
+let syncInFlight: Promise<SyncResult> | null = null
 
 /** 把云端记录写入本地（笔数配对由引擎算好，这里只防同一条云端记录重复入账），返回实际新增条数 */
 async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
