@@ -131,18 +131,17 @@ function clearPendingPurges(pids: string[]): void {
   savePendingPurges(getPendingPurges().filter((p) => !gone.has(p.pid)))
 }
 
-/** 引擎消费对端注销凭条：按去重键物理删除 count 笔本地回收站行 */
+/** 引擎消费对端注销凭条：按去重键物理删除 count 笔本地行（v0.8.6 优先删回收站行，不够再删同号存活行，防离线窗口诈尸） */
 async function purgeLocalRecords(key: string, count: number): Promise<number> {
   if (!parseRecordKey(key)) return 0
   const list = await getAllRecords()
-  const kept: RecordItem[] = []
-  let removed = 0
-  for (const r of list) {
-    if (removed < count && r.deleted && recordKey(r) === key) { removed++; continue }
-    kept.push(r)
-  }
-  if (removed > 0) saveLocalRecords(kept)
-  return removed
+  const doomed = new Set<RecordItem>()
+  for (const r of list) if (doomed.size < count && r.deleted && recordKey(r) === key) doomed.add(r)
+  for (const r of list) if (doomed.size < count && !r.deleted && recordKey(r) === key) doomed.add(r)
+  if (doomed.size === 0) return 0
+  const kept = list.filter((r) => !doomed.has(r))
+  saveLocalRecords(kept)
+  return doomed.size
 }
 
 /**

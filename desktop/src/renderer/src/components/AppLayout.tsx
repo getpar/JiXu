@@ -4,7 +4,7 @@ import { Layout, Menu, Typography, Button, Switch, message, Modal, Input, Space,
 import {
   HomeOutlined, PlusCircleOutlined, UnorderedListOutlined, BarChartOutlined,
   TagsOutlined, SyncOutlined, SunOutlined, MoonOutlined,
-  DownloadOutlined, UploadOutlined, ThunderboltOutlined, CloudOutlined, CheckSquareOutlined, CopyOutlined, DeleteOutlined,
+  DownloadOutlined, UploadOutlined, ThunderboltOutlined, CloudOutlined, CheckSquareOutlined, CopyOutlined, DeleteOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import {
   initCloud, isConnected, getEnvId, performSync, disconnect, CloudRecord,
@@ -36,6 +36,7 @@ function AppLayout(): JSX.Element {
   const [shortcutInput, setShortcutInput] = useState('')
   const [cloudEnabled, setCloudEnabled] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [cloudModalOpen, setCloudModalOpen] = useState(false)
   const [cloudEnvId, setCloudEnvId] = useState(localStorage.getItem('cloud_envId') || DEFAULT_CLOUD_ENV_ID)
   const [cloudCode, setCloudCode] = useState('')
@@ -131,6 +132,42 @@ function AppLayout(): JSX.Element {
       }
     } catch { message.error('恢复失败') }
   }
+
+  // v0.8.6 一键清空全部账单：软删全部→同步(删凭证)→彻底删除(注销凭条)→同步，全程走真实同步链路，
+  // 对端（小程序/另一台电脑）同步后回收站也会一并清除，不回流。彻底删除本地行前务必提示用户先备份。
+  async function handleClearAll(): Promise<void> {
+    Modal.confirm({
+      title: '确定清空全部账单？',
+      content: '这会删除本机上所有账单记录（含回收站），且不可撤销。若已开启云同步，其它设备同步后也会跟着清空。建议先点「备份数据」。',
+      okText: '确定清空',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      async onOk() {
+        if (syncing) { message.warning('请先等待当前同步完成'); return }
+        setClearing(true)
+        try {
+          const online = isConnected() // 未连云端时跳过同步步骤，注销凭条留在队列里下次同步自动补传
+          await window.electronAPI.softDeleteAllRecords()
+          if (online) await handleSync() // 删除凭证上云
+          const res = await window.electronAPI.purgeAllRecords()
+          if (res?.removed > 0 || res?.purgeKeys > 0) {
+            if (online) await handleSync() // 注销凭条上云
+            message.success(online
+              ? `已清空 ${res.removed} 条账单，其它设备同步后会自动跟随清除`
+              : `已清空 ${res.removed} 条账单（未连云同步，其它设备需在你下次同步后跟随清除）`)
+            setTimeout(() => window.location.reload(), 1200) // 刷新各页面数据展示
+          } else {
+            message.info('本机已经没有账单了')
+          }
+        } catch (e: any) {
+          message.error(`清空失败：${e.message || '未知错误'}`)
+        } finally {
+          setClearing(false)
+        }
+      },
+    })
+  }
+
 
   async function loadCloudStatus(): Promise<void> {
     // 检查 localStorage 中是否保存了 envId（没填过则用默认环境），自动静重连
@@ -452,9 +489,22 @@ function AppLayout(): JSX.Element {
                   block
                   icon={<UploadOutlined />}
                   onClick={handleRestore}
-                  style={{ borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#CBD5E1' }}
+                  style={{ marginBottom: 6, borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#CBD5E1' }}
                 >
                   恢复数据
+                </Button>
+                {/* v0.8.6 一键清空全部账单（含回收站），二次确认后走 删除→彻底删除 两段同步链路 */}
+                <Button
+                  ghost
+                  size="small"
+                  block
+                  danger
+                  loading={clearing}
+                  icon={<ExclamationCircleOutlined />}
+                  onClick={handleClearAll}
+                  style={{ borderRadius: 8, borderColor: 'rgba(239,68,68,0.45)', color: '#F87171' }}
+                >
+                  清空全部账单
                 </Button>
               </>
             ) : (
@@ -473,6 +523,9 @@ function AppLayout(): JSX.Element {
                   onClick={handleBackup} style={{ color: '#CBD5E1' }} />
                 <Button ghost size="small" type="text" icon={<UploadOutlined />}
                   onClick={handleRestore} style={{ color: '#CBD5E1' }} />
+                <Button ghost size="small" type="text" danger icon={<ExclamationCircleOutlined />}
+                  onClick={handleClearAll} loading={clearing} title="清空全部账单"
+                  style={{ color: '#F87171' }} />
               </div>
             )}
           </div>

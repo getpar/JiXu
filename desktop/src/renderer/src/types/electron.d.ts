@@ -100,6 +100,8 @@ interface ElectronAPI {
   purgeLocalRecords: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ removed: number }>
   listPurges: () => Promise<{ pid: string; target_key: string; cancel_rec: number; cancel_tomb: number; cancel_rev: number; label?: string }[]>
   clearPurges: (pids: string[]) => Promise<{ cleared: number }>
+  softDeleteAllRecords: () => Promise<{ marked: number }>
+  purgeAllRecords: () => Promise<{ removed: number; purgeKeys: number }>
   updateRecord: (id: number, data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string; person?: string }) => Promise<{ success: boolean }>
 
   // 统计

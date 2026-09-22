@@ -402,26 +402,14 @@ export async function performSync(
     const cloudTodoDocs = docs.filter((d) => (d as CloudEntityDoc).kind === 'todo') as CloudEntityDoc[]
     const cloudRecurDocs = docs.filter((d) => (d as CloudEntityDoc).kind === 'recurring') as CloudEntityDoc[]
 
-    // 0. v0.8.5 消费对端注销凭条：算出本端回收站要物理删除的行（内存快照同步扣减，落库由 AppLayout 执行）
+    // 0. v0.8.5 登记对端注销凭条额度（自己的不消费）；v0.8.6 实际删除挪到 eff 算好后按差额执行
     const toPurge: MarkRequest[] = []
-    const purgeConsume = new Map<string, number>()
+    const purgeCredit = new Map<string, number>()
     for (const p of cloudPurges) {
       if (p.source === 'desktop') continue // 自己传的凭条对应行早已本地删除，不重复消费
       const n = Math.max(0, p.cancelRec || 0)
-      if (n > 0 && parseKey(p.targetKey)) purgeConsume.set(p.targetKey, (purgeConsume.get(p.targetKey) || 0) + n)
+      if (n > 0 && parseKey(p.targetKey)) purgeCredit.set(p.targetKey, (purgeCredit.get(p.targetKey) || 0) + n)
     }
-    purgeConsume.forEach((count, k) => {
-      const parts = parseKey(k)
-      if (!parts) return
-      let left = count
-      for (let i = localRecords.length - 1; i >= 0 && left > 0; i--) {
-        if ((localRecords[i].deleted || 0) > 0 && recordKeyOf(localRecords[i]) === k) {
-          localRecords.splice(i, 1) // 内存快照先删，保证本轮所有配对基于"已物理删除"状态
-          left--
-        }
-      }
-      toPurge.push({ parts, count })
-    })
 
     // 注销核销聚合（v0.8.5b 时间戳感知：凭条只能核销在它之前上传的记录，不能误杀之后新加的同号账）
     const cancelRec = new Map<string, number>()
@@ -455,6 +443,27 @@ export async function performSync(
     const effRec = (k: string) => Math.max(0, (cloudRecCounts.get(k) || 0) - (cancelRec.get(k) || 0))
     const effTomb = (k: string) => Math.max(0, (cloudTombCounts.get(k) || 0) - (cancelTomb.get(k) || 0))
     const effRev = (k: string) => Math.max(0, (cloudReviveCounts.get(k) || 0) - (cancelRev.get(k) || 0))
+    // 0b. v0.8.6 注销凭条消费（差额版）：本地该键总行数超出云端有效账单数的部分才物理删，
+    //     优先删回收站行、不够再删同号存活行（堵离线端错过删除后诈尸回传）；
+    //     删除额度封顶对端凭条 cancelRec，防误杀注销后新加的同号账。内存快照同步扣减，落库由 AppLayout 执行
+    purgeCredit.forEach((credit, k) => {
+      const parts = parseKey(k)
+      if (!parts) return
+      const total = localRecords.filter((r) => recordKeyOf(r) === k).length
+      const excess = Math.min(credit, Math.max(0, total - effRec(k)))
+      if (excess <= 0) return
+      let left = excess
+      for (const pass of [1, 0]) { // 第 1 轮删回收站行，第 2 轮删存活行
+        for (let i = localRecords.length - 1; i >= 0 && left > 0; i--) {
+          const row = localRecords[i]
+          if (((row.deleted || 0) > 0 ? 1 : 0) === pass && recordKeyOf(row) === k) {
+            localRecords.splice(i, 1) // 内存快照先删，保证本轮所有配对基于"已物理删除"状态
+            left--
+          }
+        }
+      }
+      if (excess - left > 0) toPurge.push({ parts, count: excess - left })
+    })
     const localTotals = countBy(localRecords.map(recordKeyOf))            // 存活 + 已删
     // 凭证配额：死过一行 = 一张；每被恢复过一次 = 历史再多一张（配额 = D + V）
     const tombDonors: typeof localRecords = []

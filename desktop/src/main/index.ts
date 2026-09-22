@@ -464,14 +464,56 @@ function setupIPC(): void {
     return { ok: true, pid }
   })
 
-  // v0.8.5 同步引擎消费对端注销凭条：按指纹物理删除回收站行（不产生新凭条，凭条已在云端）
+  // v0.8.6 一键清空第 1 步：全部存活记录软删除（等同用户把它们全部删进回收站，
+  // 随后同步会上云删除凭证；与"逐笔删除"的同步链路完全一致）
+  ipcMain.handle('records:softDeleteAll', () => {
+    const res = db!.exec('SELECT COUNT(*) FROM records WHERE deleted = 0')
+    const marked = (res[0]?.values?.[0]?.[0] as number) || 0
+    if (marked > 0) {
+      db!.run('UPDATE records SET deleted = 1 WHERE deleted = 0')
+      saveDatabase()
+    }
+    return { marked }
+  })
+
+  // v0.8.6 一键清空第 2 步：物理删除全部记录（含回收站），按指纹聚合生成注销凭条入待上传队列。
+  // 每行的核销量与逐笔彻底删除同公式：1 张账单 +（回收站行再加 1+V 张凭证、V 张撤销凭条）
+  ipcMain.handle('records:purgeAll', () => {
+    const res = db!.exec('SELECT record_date, amount, subcategory_key, type, revive_count, deleted FROM records')
+    const rows = (res[0]?.values || []) as [string, number, string, string, number, number][]
+    const agg = new Map<string, { rec: number; tomb: number; rev: number; label: string }>()
+    for (const [date, amount, subcat, type, reviveCount, deleted] of rows) {
+      const key = `${date}|${amount}|${subcat || ''}|${type}`
+      const a = agg.get(key) || { rec: 0, tomb: 0, rev: 0, label: `${date} ¥${amount}` }
+      a.rec += 1
+      if (deleted > 0) { a.tomb += 1 + (reviveCount || 0); a.rev += reviveCount || 0 }
+      agg.set(key, a)
+    }
+    const ts = Date.now()
+    let i = 0
+    for (const [key, a] of agg) {
+      db!.run(
+        'INSERT OR REPLACE INTO sync_purges (pid, target_key, cancel_rec, cancel_tomb, cancel_rev, label, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [`ca_${ts}_${i++}`, key, a.rec, a.tomb, a.rev, `清空: ${a.label}`, ts],
+      )
+    }
+    const cntRes = db!.exec('SELECT COUNT(*) FROM records')
+    const removed = (cntRes[0]?.values?.[0]?.[0] as number) || 0
+    db!.run('DELETE FROM records')
+    if (removed > 0 || agg.size > 0) saveDatabase()
+    return { removed, purgeKeys: agg.size }
+  })
+
+  // v0.8.5 同步引擎消费对端注销凭条：按指纹物理删除本地行（不产生新凭条，凭条已在云端）
+  // v0.8.6 优先删回收站行，不够再删同号存活行 —— 堵住"对端离线错过删除→收到注销凭条后诈尸回传"的窗口
   ipcMain.handle('records:purgeLocal', (_event, parts: {
     date: string; amount: number; subcategoryKey: string; type: string
   }, count: number) => {
     db!.run(
       `DELETE FROM records WHERE id IN (
          SELECT id FROM records
-         WHERE deleted = 1 AND record_date = ? AND amount = ? AND subcategory_key = ? AND type = ?
+         WHERE record_date = ? AND amount = ? AND subcategory_key = ? AND type = ?
+         ORDER BY deleted DESC, id ASC
          LIMIT ?
        )`,
       [parts.date, parts.amount, parts.subcategoryKey, parts.type, count]

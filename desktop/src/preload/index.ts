@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('records:purgeLocal', parts, count),
   listPurges: () => ipcRenderer.invoke('purges:list'),
   clearPurges: (pids: string[]) => ipcRenderer.invoke('purges:clear', pids),
+  // v0.8.6 一键清空：软删全部 → 同步 → 彻底删除全部（注销凭条聚合） → 再同步
+  softDeleteAllRecords: () => ipcRenderer.invoke('records:softDeleteAll'),
+  purgeAllRecords: () => ipcRenderer.invoke('records:purgeAll'),
 
   // 统计
   getMonthlyStats: (month: string, type?: string) => ipcRenderer.invoke('stats:getMonthlyStats', month, type),

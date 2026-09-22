@@ -18,7 +18,8 @@
  * - 凭证/凭条附 label 人话摘要（v0.6.7）：只供人在控制台阅读，引擎不使用
  * - 编辑 = 旧记录打删除凭证 + 新增一笔，天然继承上述同步能力
  * - 彻底删除（v0.8.5）：回收站行物理删除时新增"注销凭条"(purge) 抵消该行的
- *   1 张账单 + (1+V) 张凭证 + V 张凭条，对端消费凭条后也物理删自己那份回收站行；
+ *   1 张账单 + (1+V) 张凭证 + V 张凭条，对端消费凭条后也物理删自己那份本地行
+ *   （v0.8.6：优先删回收站行，不够再删同号存活行，离线端回流诈尸也堵死）；
  *   所有配对公式统一用"注销后的有效计数"，保证不回流、不诈尸
  * - 多用户隔离：每条云端文档带 ownerId（同步码），同码才是同一户（方案 B）
  */
@@ -401,15 +402,12 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     const cloudTodoDocs = mine.filter((d): d is CloudEntityDoc => (d as CloudEntityDoc).kind === 'todo')
     const cloudRecurDocs = mine.filter((d): d is CloudEntityDoc => (d as CloudEntityDoc).kind === 'recurring')
 
-    // 0. v0.8.5 消费对端注销凭条：对端"彻底删除"的回收站行，本端也物理删除（自己上传的不消费）
-    const consumeBy = new Map<string, number>()
+    // 0. v0.8.5 登记对端注销凭条额度（自己上传的不消费）；v0.8.6 实际删除挪到 eff 算好后按差额执行
+    const purgeCredit = new Map<string, number>()
     for (const p of cloudPurges) {
       if (!deps.purgeLocal || p.source === deps.source) continue
       const n = Math.max(0, p.cancelRec || 0)
-      if (n > 0 && parseRecordKey(p.targetKey)) consumeBy.set(p.targetKey, (consumeBy.get(p.targetKey) || 0) + n)
-    }
-    if (consumeBy.size > 0 && deps.purgeLocal) {
-      for (const [k, n] of consumeBy) await deps.purgeLocal(k, n)
+      if (n > 0 && parseRecordKey(p.targetKey)) purgeCredit.set(p.targetKey, (purgeCredit.get(p.targetKey) || 0) + n)
     }
 
     // 注销核销聚合（v0.8.5b 时间戳感知：凭条只能核销在它之前上传的记录，不能误杀之后新加的同号账）
@@ -450,6 +448,26 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
     const effRev = (k: string) => Math.max(0, (cloudReviveCounts.get(k) || 0) - (cancelRev.get(k) || 0))
 
     const localAll = await deps.getLocal()
+    // 0b. v0.8.6 注销凭条消费（差额版）：本地该键总行数超出云端有效账单数的部分才物理删，
+    //     优先删回收站行、不够再删同号存活行（堵离线端错过删除后诈尸回传）；
+    //     删除额度封顶对端凭条 cancelRec，防误杀注销后新加的同号账
+    if (deps.purgeLocal) {
+      for (const [k, credit] of purgeCredit) {
+        const total = localAll.filter((r) => recordKey(r) === k).length
+        const excess = Math.min(credit, Math.max(0, total - effRec(k)))
+        if (excess <= 0) continue
+        let left = excess
+        for (const pass of [1, 0]) { // 第 1 轮删回收站行，第 2 轮删存活行
+          for (let i = localAll.length - 1; i >= 0 && left > 0; i--) {
+            if (((localAll[i].deleted || 0) > 0 ? 1 : 0) === pass && recordKey(localAll[i]) === k) {
+              localAll.splice(i, 1)
+              left--
+            }
+          }
+        }
+        await deps.purgeLocal(k, excess - left)
+      }
+    }
     const localTotals = countByRecordKey(localAll)                       // 存活 + 已删
     const deadList = localAll.filter((r) => (r.deleted || 0) > 0)
     const localDeadCounts = countByRecordKey(deadList)

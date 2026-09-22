@@ -111,19 +111,13 @@ function createDesktopDevice(cloud, ownerId) {
       const cloudRecs = docs.filter((d) => !isTomb(d) && !isRev(d) && !isPur(d))
       const cloudTombs = docs.filter(isTomb)
       const cloudRevs = docs.filter(isRev)
-      // 0. v0.8.5 消费对端注销凭条：本端回收站那笔也物理删除（自己的不消费）
+      // 0. v0.8.6 登记对端注销凭条额度（自己的不消费），实际删除按差额在 eff 算好后执行
       let purged = 0
-      const consume = new Map()
+      const purgeCredit = new Map()
       for (const p of cloudPurges) {
         if (p.source === 'desktop') continue
-        consume.set(p.targetKey, (consume.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
+        purgeCredit.set(p.targetKey, (purgeCredit.get(p.targetKey) || 0) + Math.max(0, p.cancelRec || 0))
       }
-      consume.forEach((n, k) => {
-        let left = n
-        for (let i = local.length - 1; i >= 0 && left > 0; i--) {
-          if ((local[i].deleted || 0) > 0 && recordKey(local[i]) === k) { local.splice(i, 1); left--; purged++ }
-        }
-      })
       // 注销核销聚合（v0.8.5b 时间戳感知）
       const cancelRec = new Map()
       const cancelTomb = new Map()
@@ -156,6 +150,19 @@ function createDesktopDevice(cloud, ownerId) {
       const effRec = (k) => Math.max(0, (cloudRecCounts.get(k) || 0) - (cancelRec.get(k) || 0))
       const effTomb = (k) => Math.max(0, (cloudTombCounts.get(k) || 0) - (cancelTomb.get(k) || 0))
       const effRev = (k) => Math.max(0, (cloudReviveCounts.get(k) || 0) - (cancelRev.get(k) || 0))
+      // 0b. v0.8.6 注销凭条消费（差额版，对齐真实引擎）：本地该键总行数超出 effRec 的部分才删，
+      //     优先回收站行、不够再删同号存活行，额度封顶 cancelRec
+      purgeCredit.forEach((credit, k) => {
+        const total = local.filter((r) => recordKey(r) === k).length
+        const excess = Math.min(credit, Math.max(0, total - effRec(k)))
+        if (excess <= 0) return
+        let left = excess
+        for (const wantDeleted of [true, false]) {
+          for (let i = local.length - 1; i >= 0 && left > 0; i--) {
+            if (Boolean(local[i].deleted) === wantDeleted && recordKey(local[i]) === k) { local.splice(i, 1); left--; purged++ }
+          }
+        }
+      })
       const localTotals = countBy(local.map(recordKey))            // 存活 + 已删
       const deadList = local.filter((r) => (r.deleted || 0) > 0)
       const localDeadCounts = countBy(deadList.map(recordKey))
@@ -305,11 +312,13 @@ function createMiniappDevice(cloud, ownerId) {
     }
     return done
   }
-  /** 模拟 storage.ts purgeLocalRecords（v0.8.5）：按去重键物理删除回收站行 */
+  /** 模拟 storage.ts purgeLocalRecords（v0.8.6）：按去重键物理删除，优先回收站行，不够再删同号存活行 */
   async function purgeLocal(key, count) {
     let done = 0
-    for (let i = local.length - 1; i >= 0 && done < count; i--) {
-      if ((local[i].deleted || 0) > 0 && recordKey(local[i]) === key) { local.splice(i, 1); done++ }
+    for (const wantDeleted of [true, false]) {
+      for (let i = local.length - 1; i >= 0 && done < count; i--) {
+        if (Boolean(local[i].deleted) === wantDeleted && recordKey(local[i]) === key) { local.splice(i, 1); done++ }
+      }
     }
     return done
   }
@@ -698,6 +707,27 @@ async function main() {
   mr = await miniapp.sync()
   assert(mr.ok && miniapp.getLocal().some((r) => lunchB(r) && !(r.deleted > 0)),
     '小程序能拉到新 ¥50（旧 purge 不误杀后加的同号账）')
+
+  console.log('\n【场景⑳】v0.8.6 整条链路（删+彻底删除）在离线端补齐：一次同步直接物理清除，不诈尸回传')
+  // 模拟：设备 C 同步拉到账单后离线；桌面端把它删除并彻底删除（一键清空同款链路）；
+  // 设备 C 再上线 — 旧版只消费回收站行会留下存活行被倒灌回云端（诈尸），v0.8.6 消费扩展到存活行
+  const taxi = (r) => r.amount === 33 && r.date === '2026-09-27'
+  const rec33 = { type: 'expense', amount: 33, categoryKey: 'transport', categoryName: '交通出行', subcategoryKey: 'taxi', subcategoryName: '出租车/网约车', note: '', date: '2026-09-27' }
+  desktop.appAdd(rec33)
+  await desktop.performSync()
+  const deviceC = createMiniappDevice(cloud, HOUSE_A)
+  await deviceC.sync()
+  assert(deviceC.getLocal().some(taxi), '设备 C 离线前已同步到这笔 ¥33 存活行')
+  desktop.appDelete(taxi)
+  await desktop.performSync() // 桌面传凭证
+  desktop.appPurge(taxi)
+  await desktop.performSync() // 桌面传注销凭条 —— 设备 C 全程离线没看到中间态
+  mr = await deviceC.sync() // 一次同步收到全部：应直接物理删除存活行
+  assert(mr.ok && !deviceC.getLocal().some(taxi), '设备 C 一次同步后这笔彻底消失（存活行也被消费，不进回收站）')
+  mr = await deviceC.sync()
+  const cloudRec33 = (await cloud.listAll(HOUSE_A)).filter((d) => !d.kind && d.amount === 33).length
+  const cloudTomb33 = (await cloud.listAll(HOUSE_A)).filter((d) => d.kind === 'tombstone' && d.targetKey.startsWith('2026-09-27|33|')).length
+  assert(mr.pushed === 0 && mr.pulled === 0, `收敛：设备 C 再同步 0 推 0 拉，不诈尸回传账单/凭证（pushed=${mr.pushed} pulled=${mr.pulled}，云端账单 ${cloudRec33} 张、凭证 ${cloudTomb33} 张）`)
 
   // ---- 汇总 ----
 
