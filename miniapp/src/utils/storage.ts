@@ -327,6 +327,7 @@ export interface RecurringBill {
   cycle: 'daily' | 'weekly' | 'monthly' | 'yearly'
   nextDate: string
   isActive: boolean
+  lastExecutedFor?: string  // v0.7.7 执行回执：已为哪个到期日自动记过账（跨端防双记）
   updatedAt?: number   // v0.7.3 云同步 LWW 依据：每次改动刷新
   deleted?: boolean    // v0.7.3 软删：防云端旧快照倒灌复活，页面自动过滤
 }
@@ -387,11 +388,11 @@ function advanceDate(current: string, cycle: RecurringBill['cycle']): string {
   return localDateStr(next)
 }
 
-/** 执行周期账单：创建一笔记录，并自动更新下次日期 */
+/** 执行周期账单：创建一笔记录，并自动更新下次日期（v0.7.7 写执行回执，防双端自动再记同一期） */
 export async function executeRecurringBill(id: string): Promise<void> {
-  const bills = await getRecurringBills()
+  const bills = await getAllRecurringBills() // 全量底数（含软删），否则回写会把软删项冲掉
   const bill = bills.find((b) => b.id === id)
-  if (!bill || !bill.isActive) return
+  if (!bill || bill.deleted || !bill.isActive) return
 
   // 1. 创建记账记录
   await addRecord({
@@ -405,7 +406,8 @@ export async function executeRecurringBill(id: string): Promise<void> {
     date: localDateStr(),
   })
 
-  // 2. 推算下一个周期
+  // 2. 推算下一个周期 + 盖回执（本期已记，自动执行不再重复）
+  bill.lastExecutedFor = bill.nextDate
   bill.nextDate = advanceDate(bill.nextDate, bill.cycle)
   bill.updatedAt = Date.now()
 
@@ -414,14 +416,29 @@ export async function executeRecurringBill(id: string): Promise<void> {
 
 /** v0.6.9 周期账单自动执行（与桌面端 checkRecurringBills 对齐，纯手机用户到期不再漏记）：
  * 进首页时检查到期账单 → 自动记一笔（日期=今天，备注 [周期]）→ 下次日期快进到今天之后；
- * 隔几个月没打开也只补记 1 笔不重复记历史；未知周期防死循环护栏 */
+ * 隔几个月没打开也只补记 1 笔不重复记历史；未知周期防死循环护栏；
+ * v0.7.7 执行回执 lastExecutedFor：同一到期期只记一次，防电脑/手机双端各自自动记成两笔 */
 export async function checkAndExecuteDueBills(): Promise<{ name: string; amount: number }[]> {
-  const bills = await getRecurringBills()
+  const bills = await getAllRecurringBills() // 全量底数（含软删），否则回写会把软删项冲掉
   const today = localDateStr()
   const executed: { name: string; amount: number }[] = []
   let changed = false
   for (const bill of bills) {
-    if (!bill.isActive || bill.nextDate > today) continue
+    if (bill.deleted || !bill.isActive || bill.nextDate > today) continue
+    if (bill.lastExecutedFor === bill.nextDate) {
+      // 本期已被另一端执行并同步回来：只快进日期，不重复记账
+      let skip = advanceDate(bill.nextDate, bill.cycle)
+      let g = 0
+      while (skip <= today && g++ < 2000) {
+        const prev = skip
+        skip = advanceDate(skip, bill.cycle)
+        if (skip === prev) break
+      }
+      bill.nextDate = skip
+      bill.updatedAt = Date.now()
+      changed = true
+      continue
+    }
     await addRecord({
       type: bill.type, amount: bill.amount,
       categoryKey: bill.categoryKey, categoryName: bill.categoryName,
@@ -435,6 +452,7 @@ export async function checkAndExecuteDueBills(): Promise<{ name: string; amount:
       next = advanceDate(next, bill.cycle)
       if (next === prev) break // 防死循环
     }
+    bill.lastExecutedFor = bill.nextDate // 回执：本期已记
     bill.nextDate = next
     bill.updatedAt = Date.now()
     changed = true

@@ -79,15 +79,17 @@ export default function Index(): JSX.Element {
 
   useDidShow(() => {
     refresh()
-    // v0.6.9 到期的周期账单自动补记（纯手机用户与桌面端对齐），记完弹提示并刷新
-    checkAndExecuteDueBills().then((list) => {
-      if (list.length > 0) {
-        refresh()
-        Taro.showToast({ title: `已自动记录 ${list.length} 笔周期账单`, icon: 'none', duration: 2500 })
-      }
-    }).catch(() => { /* ignore */ })
-    // 每次回到首页先和云端同步一次：桌面端记的账拉下来就地刷新
+    // 每次回到首页先和云端同步一次：桌面端记的账拉下来就地刷新；
+    // v0.7.7 周期账单自动执行改到同步完成之后：先拉回另一端的“执行回执”，
+    // 防止电脑/手机各自为同一期到期日记两笔
     syncNow().then((r) => { if (r.pulled > 0) refresh() }).catch(() => { /* 同步失败不影响本地查看 */ })
+      .then(() => checkAndExecuteDueBills())
+      .then((list) => {
+        if (list.length > 0) {
+          refresh()
+          Taro.showToast({ title: `已自动记录 ${list.length} 笔周期账单`, icon: 'none', duration: 2500 })
+        }
+      }).catch(() => { /* ignore */ })
     // v0.7.2 方案B：待办到期红点角标 + 首页横幅数据；每天首次打开额外 toast 提一嘴（当天不重复）
     getDueSummary().then(({ due, overdue }) => {
       setDueInfo({ due, overdue })

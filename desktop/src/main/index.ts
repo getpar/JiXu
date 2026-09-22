@@ -161,6 +161,10 @@ async function initDatabase(): Promise<void> {
     if (!cols.has('updated_at')) db.run(`ALTER TABLE ${tbl} ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`)
     if (!cols.has('deleted')) db.run(`ALTER TABLE ${tbl} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`)
     if (!cols.has('cloud_id')) db.run(`ALTER TABLE ${tbl} ADD COLUMN cloud_id TEXT DEFAULT ''`)
+    // v0.7.7 周期账单执行回执：已为哪个到期日记过账（跨端防双记，随快照同步）
+    if (tbl === 'recurring_bills' && !cols.has('last_executed_for')) {
+      db.run(`ALTER TABLE ${tbl} ADD COLUMN last_executed_for TEXT DEFAULT ''`)
+    }
     // 存量行补随机 cloud_id（软删后 id 不再物理复用，但独立标识更稳，换库/恢复备份也不串户）
     const missing = queryAll(`SELECT id FROM ${tbl} WHERE cloud_id = '' OR cloud_id IS NULL`)
     for (const row of missing) db.run(`UPDATE ${tbl} SET cloud_id = ? WHERE id = ?`, [newEntityId(), row.id])
@@ -604,6 +608,7 @@ function setupIPC(): void {
       categoryKey: r.category_key, subcategoryKey: r.subcategory_key,
       categoryName: '', subcategoryName: '', note: r.note || '',
       cycle: r.cycle, nextDate: r.next_date, isActive: !!r.is_active,
+      lastExecutedFor: r.last_executed_for || '',
       updatedAt: r.updated_at || 0, deleted: !!r.deleted,
     }))
   })
@@ -616,15 +621,17 @@ function setupIPC(): void {
       const existing = queryOne('SELECT id FROM recurring_bills WHERE cloud_id = ?', [it.id])
       if (existing) {
         db!.run(
-          'UPDATE recurring_bills SET type=?, amount=?, category_key=?, subcategory_key=?, note=?, cycle=?, next_date=?, is_active=?, updated_at=?, deleted=? WHERE id=?',
+          'UPDATE recurring_bills SET type=?, amount=?, category_key=?, subcategory_key=?, note=?, cycle=?, next_date=?, is_active=?, updated_at=?, deleted=?, last_executed_for=? WHERE id=?',
           [it.type || 'expense', it.amount || 0, it.categoryKey || '', it.subcategoryKey || '', it.note || '',
-           it.cycle || 'monthly', it.nextDate || '', it.isActive ? 1 : 0, it.updatedAt || 0, it.deleted ? 1 : 0, existing.id]
+           it.cycle || 'monthly', it.nextDate || '', it.isActive ? 1 : 0, it.updatedAt || 0, it.deleted ? 1 : 0,
+           it.lastExecutedFor || '', existing.id]
         )
       } else {
         db!.run(
-          'INSERT INTO recurring_bills (type, amount, category_key, subcategory_key, note, cycle, next_date, is_active, updated_at, deleted, cloud_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO recurring_bills (type, amount, category_key, subcategory_key, note, cycle, next_date, is_active, updated_at, deleted, cloud_id, last_executed_for) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [it.type || 'expense', it.amount || 0, it.categoryKey || '', it.subcategoryKey || '', it.note || '',
-           it.cycle || 'monthly', it.nextDate || '', it.isActive ? 1 : 0, it.updatedAt || 0, it.deleted ? 1 : 0, it.id]
+           it.cycle || 'monthly', it.nextDate || '', it.isActive ? 1 : 0, it.updatedAt || 0, it.deleted ? 1 : 0, it.id,
+           it.lastExecutedFor || '']
         )
       }
       changed++
@@ -670,7 +677,9 @@ function setupIPC(): void {
        `[周期] ${bill.note || ''}`, today]
     )
     const next = getNextDate(bill.next_date, bill.cycle)
-    db!.run('UPDATE recurring_bills SET next_date = ?, updated_at = ? WHERE id = ?', [next, Date.now(), id])
+    // v0.7.7 手动执行也盖回执：随后自动检查不会为同一期再记一笔
+    db!.run('UPDATE recurring_bills SET next_date = ?, updated_at = ?, last_executed_for = ? WHERE id = ?',
+      [next, Date.now(), bill.next_date, id])
     saveDatabase()
     return { success: true }
   })
@@ -803,7 +812,8 @@ function setupIPC(): void {
   })
 }
 
-// 检查周期性账单到期（启动时 + 运行期定时调用）
+// 检查周期性账单到期（启动延时 + 运行期定时调用）
+// v0.7.7 执行回执 last_executed_for：本期已被另一端执行并同步回来时只快进日期、不重复记账
 function checkRecurringBills(): void {
   if (!db) return
   const today = localDateStr()
@@ -817,6 +827,18 @@ function checkRecurringBills(): void {
   if (due.length === 0) return
   const executed: AutoBillInfo[] = []
   for (const bill of due) {
+    if (bill.last_executed_for === bill.next_date) {
+      // 回执显示本期已记过：只把日期快进到今天之后，不记账
+      let skip = getNextDate(bill.next_date, bill.cycle)
+      let g = 0
+      while (skip <= today && g++ < 2000) {
+        const prev = skip
+        skip = getNextDate(skip, bill.cycle)
+        if (skip === prev) break
+      }
+      db.run('UPDATE recurring_bills SET next_date = ?, updated_at = ? WHERE id = ?', [skip, Date.now(), bill.id])
+      continue
+    }
     // 到期即自动记一笔（日期 = 今天，备注加 [周期] 标记，与手动触发一致）
     db.run(
       'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date) VALUES (?, ?, ?, ?, ?, ?)',
@@ -832,7 +854,8 @@ function checkRecurringBills(): void {
       next = getNextDate(next, bill.cycle)
       if (next === prev) break // 未知周期导致日期不推进，防死循环
     }
-    db.run('UPDATE recurring_bills SET next_date = ?, updated_at = ? WHERE id = ?', [next, Date.now(), bill.id])
+    db.run('UPDATE recurring_bills SET next_date = ?, updated_at = ?, last_executed_for = ? WHERE id = ?',
+      [next, Date.now(), bill.next_date, bill.id])
     executed.push({
       name: bill.subcategory_name || bill.category_name || '周期账单',
       amount: bill.amount, type: bill.type, nextDate: next,
@@ -1054,9 +1077,10 @@ if (!gotLock) {
   createWindow()
   createTray()
 
-  // 周期账单自动执行：启动时检查一次到期账单；之后每 30 分钟检查一次，
-  // 覆盖软件整日常驻不关时“跨午夜到期”的场景
-  checkRecurringBills()
+  // 周期账单自动执行：v0.7.7 启动检查延后 60 秒——给渲染端启动后的云同步留时间，
+  // 先拉回另一端的执行回执再判断到期，避免手机已记过、电脑开机又补一笔；
+  // 之后每 30 分钟检查一次，覆盖软件整日常驻不关时“跨午夜到期”的场景
+  setTimeout(checkRecurringBills, 60 * 1000)
   setInterval(() => checkRecurringBills(), 30 * 60 * 1000)
 
   // 注册全局快捷键
