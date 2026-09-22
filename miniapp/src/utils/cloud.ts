@@ -120,16 +120,20 @@ function createWxCloudCollection(): CloudCollection | null {
         // ⚠️ v0.8.4 关键修正：微信小程序端 collection.get 单次上限是 20 条（非 100）！
         // 传 limit(100) 不报错但被微信静默截断返回 20，旧代码据此误判"已拉完"停止翻页，
         // 导致云端超过 20 条后的新数据（另一端刚传的）永远拉不到 — "只存不拉"真正根因
+        // v0.8.4 提速：先 count 拿总数，再按 20 条/页并行分批拉（原先串行排队翻页，页多时明显卡）
+        const PAGE = 20
+        const q = col.where({ ownerId })
+        const total = (await q.count()).total
+        if (total === 0) return []
+        const offsets: number[] = []
+        for (let o = 0; o < total; o += PAGE) offsets.push(o)
+        // 分批并行（每批 5 页，避免瞬时请求过多被限流）
         const all: CloudDoc[] = []
-        let offset = 0
-        const limit = 20
-        while (true) {
-          const res = await col.where({ ownerId }).orderBy('updatedAt', 'asc').skip(offset).limit(limit).get()
-          const rows = (res.data || []) as CloudDoc[]
-          if (rows.length === 0) break
-          all.push(...rows)
-          if (rows.length < limit) break
-          offset += limit
+        for (let i = 0; i < offsets.length; i += 5) {
+          const batch = await Promise.all(
+            offsets.slice(i, i + 5).map((o) => q.orderBy('updatedAt', 'asc').skip(o).limit(PAGE).get()),
+          )
+          for (const res of batch) all.push(...((res.data || []) as CloudDoc[]))
         }
         return all
       },

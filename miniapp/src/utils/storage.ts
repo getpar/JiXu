@@ -34,10 +34,13 @@ export function localDateStr(d: Date = new Date()): string {
  * 未配置云环境 ID 时走「本地模拟云」，逻辑完全一致，接真云零改动。
  * v0.6.6：删除/编辑通过"删除凭证 + 新增"参与同步（软删除，集合权限不变、无需云函数）。
  */
-export async function syncNow(): Promise<SyncResult> {
+export async function syncNow(force = false): Promise<SyncResult> {
   // v0.8.3 并发锁：冷启动时 app.tsx + 首页 show + 周期检查会几乎同时触发多路同步，
   // 并发跑会互相"看不见"对方在传的数据导致同一笔重复上传，这里合并为同一趟
   if (syncInFlight) return syncInFlight
+  // v0.8.4 节流：进页自动触发的同步 30 秒内不重复拉（账单页秒开优化）；
+  // 记账/删除/恢复后的推送传 force=true 必走
+  if (!force && Date.now() - lastSyncDoneAt < 30_000) return { ok: true, pushed: 0, pulled: 0 }
   syncInFlight = runSync({
     cloud: getCloudCollection(),
     source: 'miniapp',
@@ -50,10 +53,11 @@ export async function syncNow(): Promise<SyncResult> {
     // v0.7.3 待办/周期账单参与云同步（LWW 快照，与账单链路互不干扰）
     todos: { getLocal: getAllTodos, apply: applyCloudTodos },
     recurring: { getLocal: getAllRecurringBills, apply: applyCloudRecurringBills },
-  }).finally(() => { syncInFlight = null })
+  }).finally(() => { syncInFlight = null; lastSyncDoneAt = Date.now() })
   return syncInFlight
 }
 let syncInFlight: Promise<SyncResult> | null = null
+let lastSyncDoneAt = 0 // v0.8.4 上次同步完成时刻（进页自动同步的 30 秒节流依据）
 
 /** 把云端记录写入本地（笔数配对由引擎算好，这里只防同一条云端记录重复入账），返回实际新增条数 */
 async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
@@ -134,7 +138,7 @@ export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<void> {
   // v0.6.5 起不再单条直推云端，改交给同步引擎按"笔数配对"推送：
   // 否则双端同时记同一笔会在云端临时形成两条同键文档，引擎会误判成真有两笔而重复入账
   try {
-    await syncNow()
+    await syncNow(true)
   } catch { /* 失败不阻塞，下次进页的 syncNow 会兜底补传 */ }
 }
 
@@ -146,7 +150,7 @@ export async function deleteRecord(id: string): Promise<void> {
   rec.deleted = 1
   saveLocalRecords(list)
   try {
-    await syncNow() // 把删除凭证同步上云（失败不阻塞，下次同步会补传）
+    await syncNow(true) // 把删除凭证同步上云（失败不阻塞，下次同步会补传）
   } catch { /* ignore */ }
 }
 
@@ -172,7 +176,7 @@ export async function restoreRecord(id: string): Promise<void> {
   list.sort((a, b) => b.date.localeCompare(a.date))
   saveLocalRecords(list)
   try {
-    await syncNow() // 把撤销凭条同步上云（失败不阻塞，下次同步会补传）
+    await syncNow(true) // 把撤销凭条同步上云（失败不阻塞，下次同步会补传）
   } catch { /* ignore */ }
 }
 
@@ -186,7 +190,7 @@ export async function updateRecord(id: string, data: Partial<RecordItem>): Promi
   list.sort((a, b) => b.date.localeCompare(a.date))
   saveLocalRecords(list)
   try {
-    await syncNow()
+    await syncNow(true)
   } catch { /* ignore */ }
 }
 

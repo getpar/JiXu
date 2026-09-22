@@ -152,7 +152,7 @@ export default function Index(): JSX.Element {
     const id = getOwnerId()
     setOwnerId_(id)
     Taro.showToast({ title: '已加入，正在同步…', icon: 'none' })
-    const r = await syncNow()
+    const r = await syncNow(true)
     if (r.ok) { refresh(); Taro.eventCenter.trigger('dataChanged') }
   }
 
