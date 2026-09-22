@@ -99,6 +99,16 @@
   white-space: nowrap; margin-top: 2rpx;
 }
 
+/* ====== v0.7.9 月度报告 ====== */
+.report-card .section-title { margin-bottom: 14rpx; }
+.report-line { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 12rpx; }
+.report-line:last-child { margin-bottom: 0; }
+.report-dot { font-size: 24rpx; flex-shrink: 0; line-height: 1.6; }
+.report-text { font-size: 25rpx; color: var(--sub); line-height: 1.6; flex: 1; }
+.report-strong { font-weight: 800; color: var(--text); }
+.report-up { color: #ef4444; font-weight: 700; }
+.report-down { color: #10b981; font-weight: 700; }
+
 /* ====== v0.7.6 环形饼图 ====== */
 .pie-wrap { display: flex; align-items: center; gap: 28rpx; }
 .pie {

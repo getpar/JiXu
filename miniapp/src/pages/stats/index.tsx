@@ -1,7 +1,7 @@
 import { View, Text } from '@tarojs/components'
 import { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getMonthTotal, getMonthStats, getDailyTrend } from '../../utils/storage'
+import { getMonthTotal, getMonthStats, getDailyTrend, getRecords } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
@@ -60,6 +60,9 @@ export default function Stats(): JSX.Element {
   const [stats, setStats] = useState<any[]>([])
   const [trend, setTrend] = useState<any[]>([])
   const [months, setMonths] = useState<{ month: string; total: number }[]>([])
+  // v0.7.9 月度报告：本月明细（算笔数/天数/最大一笔）+ 本月收入（算结余）
+  const [monthRecs, setMonthRecs] = useState<any[]>([])
+  const [incTotal, setIncTotal] = useState(0)
   const [, setTick] = useState(0)
 
   useEffect(() => { loadData() }, [month, type])
@@ -67,12 +70,15 @@ export default function Stats(): JSX.Element {
 
   async function loadData(): Promise<void> {
     const keys = lastMonths(6)
-    const [t, s, d, ms] = await Promise.all([
+    const [t, s, d, ms, recs, inc] = await Promise.all([
       getMonthTotal(month, type), getMonthStats(month, type), getDailyTrend(month, type),
       Promise.all(keys.map((k) => getMonthTotal(k, type))),
+      getRecords(), getMonthTotal(month, 'income'),
     ])
     setTotal(t); setStats(s); setTrend(d)
     setMonths(keys.map((k, i) => ({ month: k, total: ms[i] })))
+    setMonthRecs(recs.filter((r) => r.date.startsWith(month) && !r.deleted))
+    setIncTotal(inc)
   }
 
   // 柱状图最大值（用于算高度比例）
@@ -112,6 +118,62 @@ export default function Stats(): JSX.Element {
         </View>
       ) : (
         <>
+          {/* ====== v0.7.9 月度报告：人话总结这个月（仅支出视角） ====== */}
+          {type === 'expense' && (
+            <View className='card report-card'>
+              <Text className='section-title'>📋 本月报告</Text>
+              <View className='report-line'>
+                <Text className='report-dot'>💸</Text>
+                <Text className='report-text'>
+                  这个月花了 <Text className='report-strong'>¥{total.toFixed(0)}</Text>
+                  {momPct === null ? '，还没有上月数据可比' : momPct >= 0
+                    ? <>，比上月 <Text className='report-up'>多花 {momPct.toFixed(0)}%</Text></>
+                    : <>，比上月 <Text className='report-down'>少花 {Math.abs(momPct).toFixed(0)}%</Text></>}
+                </Text>
+              </View>
+              {stats[0] && (
+                <View className='report-line'>
+                  <Text className='report-dot'>👑</Text>
+                  <Text className='report-text'>
+                    大头是「{stats[0].categoryName}」¥{stats[0].total.toFixed(0)}
+                    ，占 {total > 0 ? ((stats[0].total / total) * 100).toFixed(0) : 0}%
+                  </Text>
+                </View>
+              )}
+              {(() => {
+                const expRecs = monthRecs.filter((r) => r.type === 'expense')
+                const days = new Set(expRecs.map((r) => r.date)).size
+                return (
+                  <View className='report-line'>
+                    <Text className='report-dot'>🧾</Text>
+                    <Text className='report-text'>共 {expRecs.length} 笔 · 记了 {days} 天</Text>
+                  </View>
+                )
+              })()}
+              {(() => {
+                const expRecs = monthRecs.filter((r) => r.type === 'expense')
+                if (expRecs.length === 0) return null
+                const maxRec = expRecs.reduce((a, b) => (b.amount > a.amount ? b : a))
+                return (
+                  <View className='report-line'>
+                    <Text className='report-dot'>🔍</Text>
+                    <Text className='report-text'>最大一笔：¥{maxRec.amount.toFixed(0)} · {maxRec.subcategoryName}（{maxRec.date.slice(5)}）</Text>
+                  </View>
+                )
+              })()}
+              {incTotal > 0 && (
+                <View className='report-line'>
+                  <Text className='report-dot'>⚖️</Text>
+                  <Text className='report-text'>
+                    收入 ¥{incTotal.toFixed(0)}，结余 <Text className={incTotal - total >= 0 ? 'report-down' : 'report-up'}>
+                      {incTotal - total >= 0 ? '+' : ''}{(incTotal - total).toFixed(0)}
+                    </Text>
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* ====== v0.7.6 环形饼图：分类占比一眼看 ====== */}
           <View className='card'>
             <Text className='section-title'>🥧 分类饼图</Text>
