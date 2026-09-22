@@ -39,6 +39,19 @@ function formatAmount(v: number): string {
   return v.toFixed(0)
 }
 
+/** v0.7.6 饼图：按占比累计角度拼 CSS 锥形渐变（纯 View 零 Canvas，老机不支持时退化为空心圆，图例仍可用） */
+function buildConic(stats: any[], sum: number): string {
+  let angle = 0
+  const stops: string[] = []
+  for (const s of stats) {
+    const sweep = (s.total / sum) * 360
+    const color = catColors[s.categoryKey] || '#6B7280'
+    stops.push(`${color} ${angle.toFixed(1)}deg ${(angle + sweep).toFixed(1)}deg`)
+    angle += sweep
+  }
+  return `conic-gradient(${stops.join(', ')})`
+}
+
 export default function Stats(): JSX.Element {
   const dark = useThemeDark()
   const [month] = useState(getMonth())
@@ -99,6 +112,31 @@ export default function Stats(): JSX.Element {
         </View>
       ) : (
         <>
+          {/* ====== v0.7.6 环形饼图：分类占比一眼看 ====== */}
+          <View className='card'>
+            <Text className='section-title'>🥧 分类饼图</Text>
+            <View className='pie-wrap'>
+              <View className='pie' style={{ background: buildConic(stats, total) }}>
+                <View className='pie-hole'>
+                  <Text className='pie-total'>¥{formatAmount(total)}</Text>
+                  <Text className='pie-sub'>本月合计</Text>
+                </View>
+              </View>
+              <View className='pie-legend'>
+                {stats.map((s) => {
+                  const pct = total > 0 ? (s.total / total) * 100 : 0
+                  return (
+                    <View key={s.categoryKey} className='legend-row'>
+                      <View className='legend-dot' style={{ background: catColors[s.categoryKey] || '#6B7280' }} />
+                      <Text className='legend-name'>{s.categoryName}</Text>
+                      <Text className='legend-pct'>{pct.toFixed(0)}%</Text>
+                    </View>
+                  )
+                })}
+              </View>
+            </View>
+          </View>
+
           {/* ====== 柱状图：分类对比 ====== */}
           <View className='card'>
             <Text className='section-title'>📊 分类对比</Text>
