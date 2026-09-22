@@ -103,6 +103,7 @@ export interface CloudRecord {
   subcategoryName: string
   note: string
   date: string
+  person?: string  // v0.8.0 记录人（谁花的，可选）
   updatedAt: number
   ownerId?: string   // 同步码，只同步同码记录（多用户隔离）
   source?: string
@@ -344,7 +345,7 @@ export async function performSync(
   localRecords: {
     type: string; amount: number; categoryKey: string; categoryName: string
     subcategoryKey: string; subcategoryName: string; note: string; date: string
-    deleted?: number; reviveCount?: number
+    person?: string; deleted?: number; reviveCount?: number
   }[],
   localTodos: EntitySnapshot[] = [],
   localRecurring: EntitySnapshot[] = [],

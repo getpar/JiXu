@@ -167,6 +167,7 @@ function AppLayout(): JSX.Element {
         subcategoryName: r.subcategory_name || '',
         note: r.note || '',
         date: r.record_date || '',
+        person: r.person || '',
         deleted: r.deleted ? 1 : 0,
         reviveCount: r.revive_count || 0,
       }))
@@ -191,6 +192,7 @@ function AppLayout(): JSX.Element {
               subcategory_key: cr.subcategoryKey,
               note: cr.note || '',
               record_date: cr.date,
+              person: cr.person || '',
             })
             imported++
           } catch { /* skip duplicates */ }

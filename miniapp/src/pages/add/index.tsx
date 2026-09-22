@@ -1,7 +1,7 @@
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getMergedCategories, addRecord } from '../../utils/storage'
+import { getMergedCategories, addRecord, getRecords } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
@@ -18,9 +18,20 @@ export default function Add(): JSX.Element {
   const [catKey, setCatKey] = useState('')
   const [subKey, setSubKey] = useState('')
   const [note, setNote] = useState('')
+  // v0.8.0 记录人：可选"谁花的"+ 历史常用快捷选项
+  const [person, setPerson] = useState('')
+  const [freqPersons, setFreqPersons] = useState<string[]>([])
   const [cats, setCats] = useState<any[]>([])
 
   useEffect(() => { getMergedCategories().then(setCats) }, [])
+  useEffect(() => { loadFreqPersons() }, [])
+
+  async function loadFreqPersons(): Promise<void> {
+    const rs = await getRecords()
+    const cnt: Record<string, number> = {}
+    rs.forEach((r) => { if (r.person) cnt[r.person] = (cnt[r.person] || 0) + 1 })
+    setFreqPersons(Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).slice(0, 6))
+  }
 
   const currentCat = cats.find((c: any) => c.key === catKey)
   const subs = currentCat?.subs || []
@@ -39,11 +50,13 @@ export default function Add(): JSX.Element {
       subcategoryKey: subKey,
       subcategoryName: subs.find((s) => s.key === subKey)!.name,
       note,
+      person: person.trim(),
       date,
     })
 
     Taro.showToast({ title: '记账成功！', icon: 'success' })
-    setAmount(''); setCatKey(''); setSubKey(''); setNote(''); setDate(today())
+    setAmount(''); setCatKey(''); setSubKey(''); setNote(''); setPerson(''); setDate(today())
+    loadFreqPersons()
     Taro.eventCenter.trigger('dataChanged')
   }
 
@@ -93,6 +106,21 @@ export default function Add(): JSX.Element {
           </View>
         </View>
       )}
+
+      {/* 记录人（v0.8.0） */}
+      <View className='card'>
+        <Text className='label'>谁花的（可选）</Text>
+        {freqPersons.length > 0 && (
+          <View className='person-chips'>
+            {freqPersons.map((p) => (
+              <View key={p} className={`person-chip${person === p ? ' person-chip-active' : ''}`} onClick={() => setPerson(person === p ? '' : p)}>
+                <Text>{p}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+        <Input className='note-input' placeholder='如：爸爸、妈妈、我...' value={person} onInput={(e) => setPerson(e.detail.value)} maxlength={10} />
+      </View>
 
       {/* 备注 */}
       <View className='card'>

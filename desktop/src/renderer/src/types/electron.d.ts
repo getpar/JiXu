@@ -27,6 +27,7 @@ interface RecordItem {
   note: string
   record_date: string
   expense_date: string  // 兼容旧字段
+  person?: string       // v0.8.0 记录人（谁花的，可选，随云同步跨端）
   created_at: string
   updated_at: string
   deleted?: number      // v0.6.6 软删除：1 = 已删（数据留底）；页面查询默认已过滤
@@ -89,13 +90,13 @@ interface ElectronAPI {
   deleteCategory: (categoryKey: string, subcategoryKey: string) => Promise<{ success: boolean; error?: string }>
 
   // 记录
-  addRecord: (data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string }) => Promise<{ id: number }>
+  addRecord: (data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string; person?: string }) => Promise<{ id: number }>
   getRecordList: (filters?: { page?: number; pageSize?: number; month?: string; category_key?: string; type?: string; keyword?: string; includeDeleted?: boolean; onlyDeleted?: boolean }) => Promise<RecordListResult>
   deleteRecord: (id: number) => Promise<{ success: boolean }>
   markRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ marked: number }>
   restoreRecord: (id: number) => Promise<{ restored: number }>
   restoreRecordByFingerprint: (parts: { date: string; amount: number; subcategoryKey: string; type: string }, count: number) => Promise<{ restored: number }>
-  updateRecord: (id: number, data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string }) => Promise<{ success: boolean }>
+  updateRecord: (id: number, data: { type: string; amount: number; category_key: string; subcategory_key: string; note: string; record_date: string; person?: string }) => Promise<{ success: boolean }>
 
   // 统计
   getMonthlyStats: (month: string, type?: string) => Promise<MonthlyStat[]>

@@ -31,6 +31,7 @@ export default function History(): JSX.Element {
   const [editCat, setEditCat] = useState('')
   const [editSub, setEditSub] = useState('')
   const [editNote, setEditNote] = useState('')
+  const [editPerson, setEditPerson] = useState('')  // v0.8.0 记录人
 
   useDidShow(() => {
     getRecords().then(setRecords)
@@ -62,7 +63,7 @@ export default function History(): JSX.Element {
   function openEdit(r: any): void {
     setEditId(r.id); setEditType(r.type); setEditAmt(String(r.amount))
     setEditDate(r.date); setEditCat(r.categoryKey); setEditSub(r.subcategoryKey)
-    setEditNote(r.note); setEditOpen(true)
+    setEditNote(r.note); setEditPerson(r.person || ''); setEditOpen(true)
   }
 
   async function saveEdit(): Promise<void> {
@@ -72,7 +73,7 @@ export default function History(): JSX.Element {
     const sub = currentCat?.subs.find((s: any) => s.key === editSub)
     await updateRecord(editId, {
       type: editType, amount: amt, categoryKey: editCat, categoryName: currentCat!.name,
-      subcategoryKey: editSub, subcategoryName: sub!.name, note: editNote, date: editDate,
+      subcategoryKey: editSub, subcategoryName: sub!.name, note: editNote, person: editPerson.trim(), date: editDate,
     })
     setRecords(await getRecords()); Taro.eventCenter.trigger('dataChanged')
     setEditOpen(false)
@@ -95,7 +96,7 @@ export default function History(): JSX.Element {
   let filtered = records
   if (month) filtered = filtered.filter((r) => r.date.startsWith(month))
   if (type) filtered = filtered.filter((r) => r.type === type)
-  if (keyword) filtered = filtered.filter((r) => r.note.includes(keyword) || r.categoryName.includes(keyword) || r.subcategoryName.includes(keyword))
+  if (keyword) filtered = filtered.filter((r) => r.note.includes(keyword) || r.categoryName.includes(keyword) || r.subcategoryName.includes(keyword) || (r.person || '').includes(keyword))
   filtered = [...filtered].sort((a, b) => b.date.localeCompare(a.date))
 
   const expenseSum = filtered.filter((r) => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
@@ -106,7 +107,7 @@ export default function History(): JSX.Element {
     const data = filtered.map((r) => ({
       '日期': r.date, '类型': r.type === 'expense' ? '支出' : '收入',
       '一级分类': r.categoryName, '二级分类': r.subcategoryName,
-      '金额': r.amount, '备注': r.note,
+      '金额': r.amount, '记录人': r.person || '', '备注': r.note,
     }))
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -175,7 +176,7 @@ export default function History(): JSX.Element {
                 <Text className='tag orange'>{r.categoryName}</Text>
                 <Text className='tag'>{r.subcategoryName}</Text>
               </View>
-              <Text className='record-date'>{r.date} {r.note || ''}</Text>
+              <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
             </View>
             <View className='record-right'>
               <Text className={`record-amount ${r.type === 'income' ? 'green' : 'red'}`}>{r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}</Text>
@@ -205,7 +206,7 @@ export default function History(): JSX.Element {
                       <Text className='tag orange'>{r.categoryName}</Text>
                       <Text className='tag'>{r.subcategoryName}</Text>
                     </View>
-                    <Text className='record-date'>{r.date} {r.note || ''}</Text>
+                    <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
                   </View>
                   <View className='record-right'>
                     <Text className='trash-amount'>{r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}</Text>
@@ -249,6 +250,10 @@ export default function History(): JSX.Element {
                   ))}
                 </View>
               )}
+            </View>
+
+            <View className='form-item'><Text className='form-label'>记录人</Text>
+              <Input className='note-input' placeholder='可选：谁花的' value={editPerson} onInput={(e) => setEditPerson(e.detail.value)} maxlength={10} />
             </View>
 
             <View className='form-item'><Text className='form-label'>备注</Text>

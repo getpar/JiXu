@@ -35,6 +35,7 @@ function AddExpensePage(): JSX.Element {
         type: recordType, amount: v.amount, category_key: v.category_key,
         subcategory_key: v.subcategory_key, note: v.note || '',
         record_date: v.record_date.format('YYYY-MM-DD'),
+        person: (v.person || '').trim(),
       })
       message.success('保存成功！')
       form.resetFields(); setSelectedCat(null); navigate('/home')
@@ -143,6 +144,19 @@ function AddExpensePage(): JSX.Element {
               />
             </Form.Item>
           </div>
+
+          {/* 记录人（v0.8.0） */}
+          <Form.Item
+            label={<span style={{ fontSize: 13, fontWeight: 600 }}>谁花的（可选）</span>}
+            name="person"
+          >
+            <Input
+              placeholder="如：爸爸、妈妈、我"
+              maxLength={10}
+              allowClear
+              style={{ borderRadius: 10 }}
+            />
+          </Form.Item>
 
           {/* 备注 */}
           <Form.Item

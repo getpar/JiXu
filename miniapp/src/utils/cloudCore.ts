@@ -33,6 +33,7 @@ export interface CloudRecord {
   subcategoryName: string
   note: string
   date: string          // YYYY-MM-DD
+  person?: string       // v0.8.0 记录人（谁花的，可选）
   updatedAt: number     // 毫秒时间戳，增量同步依据
   source?: string       // 'desktop' | 'miniapp'（旧数据可能没有此字段）
   ownerId?: string      // 同步码（户标识），只同步同码记录；旧数据无此字段 = 孤立数据不再拉取
@@ -102,6 +103,7 @@ export interface SyncableRecord {
   subcategoryName: string
   note: string
   date: string
+  person?: string       // v0.8.0 记录人（谁花的，可选）
   deleted?: number      // v0.6.6 软删除：0/undefined = 正常，1 = 已删除（仅本地状态，同步靠删除凭证文档）
   reviveCount?: number  // v0.6.7 本笔被恢复过的次数（仅本地；期望云端凭证数 = 已删数 + 恢复数）
 }
@@ -182,6 +184,7 @@ export function cloudToLocal(r: CloudRecord): SyncableRecord {
     subcategoryKey: r.subcategoryKey,
     subcategoryName: r.subcategoryName || '',
     note: r.note || '',
+    person: r.person || '',
     date: r.date,
   }
 }
@@ -196,6 +199,7 @@ export function localToCloud(r: SyncableRecord, source: string, now: number, own
     subcategoryKey: r.subcategoryKey,
     subcategoryName: r.subcategoryName,
     note: r.note || '',
+    person: r.person || '',
     date: r.date,
     updatedAt: now,
     source,

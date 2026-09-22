@@ -75,6 +75,11 @@ async function initDatabase(): Promise<void> {
     db.run('ALTER TABLE records ADD COLUMN revive_count INTEGER NOT NULL DEFAULT 0')
     saveDatabase()
   }
+  // v0.8.0：记录人（谁花的，可选，随云同步跨端）
+  if (!colNames.has('person')) {
+    db.run("ALTER TABLE records ADD COLUMN person TEXT DEFAULT ''")
+    saveDatabase()
+  }
 
   // 兼容旧表：如果存在旧 expenses 表，迁移数据
   const hasOldTable = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='expenses'")
@@ -313,11 +318,11 @@ function setupIPC(): void {
   // ---- 流水记录 ----
   ipcMain.handle('records:add', (_event, data: {
     type: string; amount: number; category_key: string
-    subcategory_key: string; note: string; record_date: string
+    subcategory_key: string; note: string; record_date: string; person?: string
   }) => {
     db!.run(
-      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date) VALUES (?, ?, ?, ?, ?, ?)',
-      [data.type || 'expense', data.amount, data.category_key, data.subcategory_key, data.note, data.record_date]
+      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [data.type || 'expense', data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '']
     )
     const result = db!.exec('SELECT last_insert_rowid() as id')
     const id = result[0]?.values[0]?.[0] || 0
@@ -348,9 +353,9 @@ function setupIPC(): void {
       params.push(type)
     }
     if (keyword) {
-      where += ' AND (r.note LIKE ? OR c.category_name LIKE ? OR c.subcategory_name LIKE ?)'
+      where += ' AND (r.note LIKE ? OR c.category_name LIKE ? OR c.subcategory_name LIKE ? OR r.person LIKE ?)'
       const kw = `%${keyword}%`
-      params.push(kw, kw, kw)
+      params.push(kw, kw, kw, kw)
     }
 
     const offset = (page - 1) * pageSize
@@ -383,14 +388,14 @@ function setupIPC(): void {
   // v0.6.6 编辑 = 旧行打删除标记 + 新增一笔（删除凭证 + 新记录一起同步，跨端生效）
   ipcMain.handle('records:update', (_event, id: number, data: {
     type: string; amount: number; category_key: string
-    subcategory_key: string; note: string; record_date: string
+    subcategory_key: string; note: string; record_date: string; person?: string
   }) => {
     const old = queryOne('SELECT * FROM records WHERE id = ?', [id])
     if (!old) return { success: false }
     db!.run("UPDATE records SET deleted = 1, updated_at = datetime('now','localtime') WHERE id = ?", [id])
     db!.run(
-      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date) VALUES (?, ?, ?, ?, ?, ?)',
-      [data.type, data.amount, data.category_key, data.subcategory_key, data.note, data.record_date]
+      'INSERT INTO records (type, amount, category_key, subcategory_key, note, record_date, person) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [data.type, data.amount, data.category_key, data.subcategory_key, data.note, data.record_date, data.person || '']
     )
     const result = db!.exec('SELECT last_insert_rowid() as id')
     const newId = result[0]?.values[0]?.[0] || 0
@@ -528,7 +533,7 @@ function setupIPC(): void {
 
     return queryAll(
       `SELECT r.record_date as 日期, r.type as 类型, c.category_name as 一级分类, c.subcategory_name as 二级分类,
-              r.amount as 金额, r.note as 备注
+              r.amount as 金额, r.person as 记录人, r.note as 备注
        FROM records r
        LEFT JOIN categories c ON r.category_key = c.category_key AND r.subcategory_key = c.subcategory_key
        ${where}

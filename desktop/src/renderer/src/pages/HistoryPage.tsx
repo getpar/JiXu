@@ -85,6 +85,7 @@ function HistoryPage(): JSX.Element {
       category_key: record.category_key,
       subcategory_key: record.subcategory_key,
       note: record.note,
+      person: record.person || '',
       record_date: dayjs(record.record_date || record.expense_date),
     })
     setEditModalOpen(true)
@@ -99,6 +100,7 @@ function HistoryPage(): JSX.Element {
         category_key: v.category_key,
         subcategory_key: v.subcategory_key,
         note: v.note || '',
+        person: (v.person || '').trim(),
         record_date: v.record_date.format('YYYY-MM-DD'),
       })
       message.success('修改成功')
@@ -111,7 +113,7 @@ function HistoryPage(): JSX.Element {
     const exportData = await window.electronAPI.exportAll(selectedMonth.format('YYYY-MM'), selectedType)
     if (exportData.length === 0) { message.warning('无数据可导出'); return }
     const ws = XLSX.utils.json_to_sheet(exportData)
-    ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 30 }]
+    ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 30 }]
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '账单')
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
     const result = await window.electronAPI.saveFile(`每日小记_${selectedMonth.format('YYYY-MM')}.xlsx`, Array.from(new Uint8Array(buf)))
@@ -123,11 +125,11 @@ function HistoryPage(): JSX.Element {
     if (exportData.length === 0) { message.warning('无数据可导出'); return }
     // 手动生成 CSV（支持中文 BOM，Excel 可正确打开）
     const BOM = '﻿'
-    const headers = ['日期', '类型', '一级分类', '二级分类', '金额', '备注']
+    const headers = ['日期', '类型', '一级分类', '二级分类', '金额', '记录人', '备注']
     const rows = exportData.map((r: any) => [
       r['日期'] || r.date || '', r['类型'] || r.type || '',
       r['一级分类'] || r.category_name || '', r['二级分类'] || r.subcategory_name || '',
-      r['金额'] || r.amount || '', (r['备注'] || r.note || '').replace(/,/g, '，'),
+      r['金额'] || r.amount || '', r['记录人'] || r.person || '', (r['备注'] || r.note || '').replace(/,/g, '，'),
     ])
     const csv = BOM + headers.join(',') + '\n' + rows.map((r: string[]) => r.join(',')).join('\n')
     const buf = new TextEncoder().encode(csv)
@@ -180,6 +182,10 @@ function HistoryPage(): JSX.Element {
         </span>
       ),
       sorter: (a: any, b: any) => a.amount - b.amount,
+    },
+    {
+      title: '记录人', dataIndex: 'person', key: 'person', width: 90,
+      render: (p: string) => (p ? <Tag color="orange" style={{ borderRadius: 6 }}>{p}</Tag> : <Text type="secondary" style={{ fontSize: 13 }}>-</Text>),
     },
     {
       title: '备注', dataIndex: 'note', key: 'note', ellipsis: true,
@@ -350,6 +356,9 @@ function HistoryPage(): JSX.Element {
             </Form.Item>
             <Form.Item label="二级分类" name="subcategory_key" rules={[{ required: true }]}>
               <Select disabled={!editSelCat} options={editSubs} />
+            </Form.Item>
+            <Form.Item label="记录人（谁花的，可选）" name="person">
+              <Input placeholder="如：爸爸、妈妈、我" maxLength={10} style={{ borderRadius: 10 }} />
             </Form.Item>
             <Form.Item label="备注" name="note">
               <Input.TextArea rows={2} maxLength={200} style={{ borderRadius: 10 }} />
