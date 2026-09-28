@@ -1,24 +1,47 @@
-/* v0.7.0 暗色模式调色板：所有页面结构性颜色均引用这套变量，
-   根节点挂 .theme-dark 即整页切换（由 utils/theme.ts 控制）；强调色（橙/红/绿等 chip）不随主题，双模式下均可读 */
+/* ====== 「靛」现代数据风 · 全局调色板 v0.9.0 ======
+   所有页面统一引用这套变量；根节点挂 .theme-dark 即整页切深色（由 utils/theme.ts 控制）
+   设计约束：无渐变、无阴影、无 emoji、字重上限 500、靠留白与 1rpx 细线分层 */
 page {
-  --bg: #F1F5F9;        /* 页面背景 */
-  --card: #fff;         /* 卡片/弹窗背景 */
-  --text: #1E293B;      /* 主文字 */
-  --sub: #64748B;       /* 次级文字 */
-  --muted: #94A3B8;     /* 弱文字 */
-  --faint: #CBD5E1;     /* 占位/箭头文字 */
-  --soft: #F1F5F9;      /* chip/输入框/分隔线浅底 */
-  --line: #E2E8F0;      /* 边框/进度条轨道 */
+  --bg: #F5F6F8;          /* 页面背景（浅灰） */
+  --card: #FFFFFF;        /* 卡片/弹窗背景 */
+  --soft: #F1F2F5;        /* 浅底块/进度条轨道/输入框 */
+  --text: #17181C;        /* 主文字 */
+  --sub: #7A7F8A;         /* 次级文字 */
+  --muted: #9AA0AB;       /* 弱文字 */
+  --faint: #B9BEC8;       /* 占位/箭头 */
+  --line: #EAECF0;        /* 边框/分隔线 */
+  --accent: #2E3A8C;      /* 品牌主色（深靛蓝） */
+  --accent-2: #6B74C4;    /* 单色系第二档 */
+  --accent-3: #A9AEE0;    /* 单色系第三档 */
+  --accent-soft: #EDEFF8; /* 主色浅底（标签） */
+  --hero: #2E3A8C;        /* 深色主卡背景 */
+  --exp: #C0453C;         /* 支出红 */
+  --exp-soft: #F8EDEC;
+  --inc: #2F7A5A;         /* 收入绿 */
+  --inc-soft: #EAF3EE;
+  --warn: #B4823C;        /* 预警琥珀 */
+  --warn-soft: #F7F0E5;
 }
 .theme-dark {
-  --bg: #0F172A;
-  --card: #1E293B;
-  --text: #E2E8F0;
-  --sub: #94A3B8;
-  --muted: #64748B;
-  --faint: #475569;
-  --soft: #334155;
-  --line: #334155;
+  --bg: #0E0F13;
+  --card: #1A1C22;
+  --soft: #23262E;
+  --text: #E8E9EC;
+  --sub: #8A909C;
+  --muted: #6E7480;
+  --faint: #4E535E;
+  --line: #2A2D36;
+  --accent: #7C89E0;
+  --accent-2: #5D68C0;
+  --accent-3: #454E9E;
+  --accent-soft: #232A4D;
+  --hero: #2C3580;
+  --exp: #E07A72;
+  --exp-soft: #3A2523;
+  --inc: #6FBF97;
+  --inc-soft: #22362C;
+  --warn: #D3A45E;
+  --warn-soft: #362C1E;
 }
 
 page {
@@ -30,82 +53,63 @@ page {
 }
 
 .container {
-  padding: 24rpx;
+  padding: 28rpx;
 }
 
-.card {
+/* 通用白卡 */
+.card,
+.panel {
   background: var(--card);
   border-radius: 24rpx;
-  padding: 28rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.04);
+  padding: 28rpx 30rpx;
+  margin-bottom: 24rpx;
 }
 
 /* 颜色语义 */
-.red { color: #EF4444; }
-.green { color: #10B981; }
-.orange { color: #FF6B35; }
+.red { color: var(--exp); }
+.green { color: var(--inc); }
+.orange { color: var(--accent); }
 
 /* 通用标签 */
 .tag {
-  padding: 6rpx 14rpx;
-  border-radius: 8rpx;
-  font-size: 24rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 10rpx;
+  font-size: 23rpx;
   background: var(--soft);
   color: var(--sub);
   display: inline-block;
 }
+.tag.orange { background: var(--accent-soft); color: var(--accent); }
+.tag.green { background: var(--inc-soft); color: var(--inc); }
+.tag.red { background: var(--exp-soft); color: var(--exp); }
 
-.tag.orange {
-  background: #FFF0E8;
-  color: #FF6B35;
-}
-
-.tag.green {
-  background: #ECFDF5;
-  color: #10B981;
-}
-
-.tag.red {
-  background: #FEF2F2;
-  color: #EF4444;
-}
-
-/* 按钮 */
+/* 主按钮 */
 .btn-primary {
-  background: linear-gradient(135deg, #FF6B35, #FF8555);
+  background: var(--accent);
   color: #fff;
   text-align: center;
   border-radius: 16rpx;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* 进度条 */
 .bar {
-  height: 14rpx;
+  height: 8rpx;
   background: var(--soft);
-  border-radius: 7rpx;
+  border-radius: 4rpx;
   overflow: hidden;
 }
-
 .bar-fill {
   height: 100%;
-  border-radius: 7rpx;
+  border-radius: 4rpx;
+  background: var(--accent);
   transition: width 0.3s ease;
 }
 
 /* 空状态 */
 .empty {
   text-align: center;
-  padding: 80rpx 0;
+  padding: 60rpx 0;
   color: var(--faint);
-  font-size: 28rpx;
-}
-
-/* 暗色下阴影在白底上才自然，深色卡片减淡避免脏边 */
-.theme-dark .card,
-.theme-dark .todo-card,
-.theme-dark .record,
-.theme-dark .modal-box {
-  box-shadow: none;
+  font-size: 25rpx;
 }

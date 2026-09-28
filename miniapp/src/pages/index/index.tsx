@@ -17,12 +17,6 @@ function formatAmount(val: number): string {
   return abs.toFixed(2)
 }
 
-const catEmoji: Record<string, string> = {
-  food: '🍜', transport: '🚗', shopping: '🛒', housing: '🏠',
-  entertainment: '🎮', medical: '💊', education: '📚', social: '🎁',
-  finance: '💰', other: '📦',
-}
-
 export default function Index(): JSX.Element {
   const dark = useThemeDark()
   const [themePref, setThemePrefState] = useState<ThemePref>(getThemePref())
@@ -106,7 +100,7 @@ export default function Index(): JSX.Element {
         const today = localDateStr()
         if (Taro.getStorageSync('last_due_remind') !== today) {
           Taro.setStorageSync('last_due_remind', today)
-          Taro.showToast({ title: `🔔 今天有 ${n} 个待办${overdue > 0 ? `（含 ${overdue} 个已逾期）` : ''}`, icon: 'none', duration: 2500 })
+          Taro.showToast({ title: `今天有 ${n} 个待办${overdue > 0 ? `（含 ${overdue} 个已逾期）` : ''}`, icon: 'none', duration: 2500 })
         }
       } else {
         Taro.removeTabBarBadge({ index: 0 }).catch(() => { /* 非 tabBar 环境忽略 */ })
@@ -193,18 +187,27 @@ export default function Index(): JSX.Element {
   const balance = inc - exp
   const pct = budget > 0 ? Math.round((exp / budget) * 100) : 0
   const over = budget > 0 && exp > budget
+  const budgetState = over ? 'is-over' : pct >= 80 ? 'is-warn' : 'is-ok'
 
-  const budgetColor = over ? '#EF4444' : pct >= 80 ? '#F59E0B' : '#10B981'
+  // 快捷操作（去 emoji，纯文字网格）
+  const actions = [
+    { label: '记账', onClick: () => Taro.switchTab({ url: '/pages/add/index' }) },
+    { label: '待办', onClick: () => Taro.navigateTo({ url: '/pages/todos/index' }) },
+    { label: budget > 0 ? '预算' : '设预算', onClick: () => { setShowBudget(true); setBudgetInput(budget > 0 ? String(Math.round(budget)) : '') } },
+    { label: '分类', onClick: () => Taro.navigateTo({ url: '/pages/categories/index' }) },
+    { label: '周期', onClick: () => Taro.navigateTo({ url: '/pages/recurring/index' }) },
+    { label: '统计', onClick: () => Taro.switchTab({ url: '/pages/stats/index' }) },
+  ]
 
   return (
     <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* ====== 顶栏 ====== */}
       <View className='topbar'>
-        <Text className='topbar-brand'>每日小记</Text>
+        <Text className='brand'>每日小记</Text>
         <Picker mode='selector' range={monthOptions} onChange={(e) => setMonth(monthOptions[Number(e.detail.value)])}>
-          <View className='topbar-month'>
+          <View className='month'>
             <Text>{month}</Text>
-            <Text className='topbar-arrow'>▼</Text>
+            <Text className='month-arrow'>▼</Text>
           </View>
         </Picker>
       </View>
@@ -212,66 +215,57 @@ export default function Index(): JSX.Element {
       {/* ====== v0.7.2 待办到期强提醒横幅（点击直达待办页） ====== */}
       {dueTotal > 0 && (
         <View className='due-banner' onClick={() => Taro.navigateTo({ url: '/pages/todos/index' })}>
-          <Text className='due-banner-text'>
-            🔔 今天有 {dueTotal} 个待办要处理{dueInfo.overdue > 0 ? `（含 ${dueInfo.overdue} 个已逾期）` : ''}
+          <Text className='due-text'>
+            今天有 {dueTotal} 个待办要处理{dueInfo.overdue > 0 ? `（含 ${dueInfo.overdue} 个已逾期）` : ''}
           </Text>
-          <Text className='due-banner-go'>去处理 ›</Text>
+          <Text className='due-go'>去处理 ›</Text>
         </View>
       )}
 
-      {/* ====== 结余卡片 ====== */}
-      <View className='balance-card'>
-        <Text className='balance-label'>本月结余</Text>
-        <Text className={`balance-value ${balance >= 0 ? 'green' : 'red'}`}>
+      {/* ====== 结余主卡 ====== */}
+      <View className='hero'>
+        <Text className='hero-label'>本月结余</Text>
+        <Text className='hero-value'>
           {balance >= 0 ? '+' : '-'}¥{formatAmount(Math.abs(balance))}
         </Text>
-        <View className='balance-row'>
-          <View className='balance-item'>
-            <View className='balance-dot balance-dot-exp' />
-            <Text className='balance-item-label'>支出</Text>
-            <Text className='balance-item-val'>¥{formatAmount(exp)}</Text>
-          </View>
-          <View className='balance-item'>
-            <View className='balance-dot balance-dot-inc' />
-            <Text className='balance-item-label'>收入</Text>
-            <Text className='balance-item-val'>¥{formatAmount(inc)}</Text>
-          </View>
+        <View className='hero-row'>
+          <Text className='hero-item'>支出<Text className='hero-exp'>¥{formatAmount(exp)}</Text></Text>
+          <Text className='hero-item'>收入<Text className='hero-inc'>¥{formatAmount(inc)}</Text></Text>
         </View>
       </View>
 
-      {/* ====== 预算卡片 ====== */}
+      {/* ====== 预算 ====== */}
       {isCurrentMonth && budget > 0 && (
-        <View className='budget-card'>
-          <View className='budget-header'>
-            <Text className='budget-title'>📊 月度预算</Text>
-            <View className='budget-tag' style={`background:${over ? '#FEF2F2' : pct >= 80 ? '#FFFBEB' : '#ECFDF5'}`}>
-              <Text style={`color:${budgetColor};font-size:22rpx;font-weight:600`}>{over ? '已超支' : `${pct}%`}</Text>
-            </View>
+        <View className='panel'>
+          <View className='budget-head'>
+            <Text className='budget-title'>本月预算</Text>
+            <Text className={`budget-pct ${budgetState}`}>{over ? '已超支' : `${pct}%`}</Text>
           </View>
           <View className='budget-bar'>
-            <View className='budget-fill' style={`width:${Math.min(pct, 100)}%;background:${budgetColor}`} />
+            <View className={`budget-fill ${budgetState}`} style={`width:${Math.min(pct, 100)}%`} />
           </View>
-          <View className='budget-footer'>
-            <Text className='budget-used'>已用 ¥{formatAmount(exp)}</Text>
-            <Text className='budget-total'>预算 ¥{formatAmount(budget)}</Text>
+          <View className='budget-foot'>
+            <Text className='budget-foot-text'>已用 ¥{formatAmount(exp)}</Text>
+            <Text className='budget-foot-text'>预算 ¥{formatAmount(budget)}</Text>
           </View>
         </View>
       )}
 
-      {/* ====== v0.7.8 钱花哪了：Top3 分类迷你条（点击进统计页） ====== */}
+      {/* ====== v0.7.8 钱花哪了：Top3 分类（点击进统计页） ====== */}
       {top3.length > 0 && (
-        <View className='top3-card' onClick={() => Taro.switchTab({ url: '/pages/stats/index' })}>
-          <Text className='top3-title'>🏆 这个月钱花哪了</Text>
-          {top3.map((t) => {
-            const pct = exp > 0 ? Math.round((t.total / exp) * 100) : 0
+        <View className='panel' onClick={() => Taro.switchTab({ url: '/pages/stats/index' })}>
+          <Text className='block-title'>这个月钱花哪了</Text>
+          {top3.map((t, i) => {
+            const p = exp > 0 ? Math.round((t.total / exp) * 100) : 0
             return (
-              <View key={t.categoryKey} className='top3-row'>
-                <Text className='top3-emoji'>{catEmoji[t.categoryKey] || '📌'}</Text>
-                <Text className='top3-name'>{t.categoryName}</Text>
-                <View className='top3-bar'>
-                  <View className='top3-fill' style={`width:${Math.max(pct, 4)}%`} />
+              <View key={t.categoryKey} className={`top3-row${i === top3.length - 1 ? ' last' : ''}`}>
+                <View className='top3-line'>
+                  <Text className='top3-name'>{t.categoryName}</Text>
+                  <Text className='top3-amt'>¥{formatAmount(t.total)} · {p}%</Text>
                 </View>
-                <Text className='top3-amt'>¥{formatAmount(t.total)} · {pct}%</Text>
+                <View className='top3-bar'>
+                  <View className={`top3-fill lv${i + 1}`} style={`width:${Math.max(p, 3)}%`} />
+                </View>
               </View>
             )
           })}
@@ -280,98 +274,76 @@ export default function Index(): JSX.Element {
 
       {/* ====== 快捷操作 ====== */}
       <View className='actions'>
-        <View className='action-item' onClick={() => Taro.switchTab({ url: '/pages/add/index' })}>
-          <View className='action-icon action-add'>✏️</View>
-          <Text className='action-text'>记账</Text>
-        </View>
-        <View className='action-item' onClick={() => Taro.navigateTo({ url: '/pages/todos/index' })}>
-          <View className='action-icon action-todo'>🔔</View>
-          <Text className='action-text'>待办</Text>
-        </View>
-        <View className='action-item' onClick={() => { setShowBudget(true); setBudgetInput(budget > 0 ? String(Math.round(budget)) : '') }}>
-          <View className='action-icon action-budget'>🎯</View>
-          <Text className='action-text'>{budget > 0 ? '预算' : '设预算'}</Text>
-        </View>
-        <View className='action-item' onClick={() => Taro.navigateTo({ url: '/pages/categories/index' })}>
-          <View className='action-icon action-cat'>🏷️</View>
-          <Text className='action-text'>分类</Text>
-        </View>
-        <View className='action-item' onClick={() => Taro.navigateTo({ url: '/pages/recurring/index' })}>
-          <View className='action-icon action-recur'>🔁</View>
-          <Text className='action-text'>周期</Text>
-        </View>
-        <View className='action-item' onClick={() => Taro.switchTab({ url: '/pages/stats/index' })}>
-          <View className='action-icon action-stats'>📊</View>
-          <Text className='action-text'>统计</Text>
-        </View>
+        {actions.map((a, i) => (
+          <View
+            key={a.label}
+            className={`action-item${(i + 1) % 3 === 0 ? ' no-right' : ''}${i >= 3 ? ' no-bottom' : ''}`}
+            onClick={a.onClick}
+          >
+            <Text className='action-item-text'>{a.label}</Text>
+          </View>
+        ))}
       </View>
 
       {/* ====== 最近记录 ====== */}
       <View className='section'>
-        <View className='section-header'>
+        <View className='section-head'>
           <Text className='section-title'>最近记录</Text>
           <Text className='section-more' onClick={() => Taro.switchTab({ url: '/pages/history/index' })}>全部 ›</Text>
         </View>
 
         {recent.length === 0 ? (
-          <View className='empty'>
-            <Text className='empty-icon'>📝</Text>
-            <Text>暂无记录，去记一笔吧</Text>
-          </View>
+          <View className='empty'><Text>暂无记录，去记一笔吧</Text></View>
         ) : (
           recent.map((r, i) => (
-            <View key={r.id} className={`record-card ${i === recent.length - 1 ? 'last' : ''}`}>
-              <View className='record-icon' style={`background:${r.type === 'income' ? '#ECFDF5' : '#FFF0E8'}`}>
-                <Text>{catEmoji[r.categoryKey] || '📌'}</Text>
-              </View>
-              <View className='record-body'>
-                <View className='record-top'>
-                  <Text className='record-cat'>{r.subcategoryName}</Text>
-                  <Text className={`record-amt ${r.type === 'income' ? 'green' : 'red'}`}>
-                    {r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}
-                  </Text>
-                </View>
-                <View className='record-btm'>
-                  <Text className='record-date'>{r.date}</Text>
-                  {r.note ? <Text className='record-note'>· {r.note}</Text> : null}
-                  {r.photo ? <Text className='record-note' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>· 📷</Text> : null}
+            <View key={r.id} className={`record-row${i === recent.length - 1 ? ' last' : ''}`}>
+              <View className='record-left'>
+                <Text className='record-cat'>{r.subcategoryName}</Text>
+                <View className='record-meta-row'>
+                  <Text className='record-meta'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' · ' + r.note : ''}</Text>
+                  {r.photo ? (
+                    <Text className='record-photo' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>凭证</Text>
+                  ) : null}
                 </View>
               </View>
+              <Text className={`record-amt ${r.type === 'income' ? 't-inc' : 't-exp'}`}>
+                {r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}
+              </Text>
             </View>
           ))
         )}
       </View>
 
       {/* 外观 & 云同步 & 清除数据 */}
-      <View className='clear-btn' onClick={pickTheme}>
-        <Text className='clear-text'>🌙 外观 · {THEME_PREFS.find((p) => p.key === themePref)?.label}{themePref === 'system' && dark ? '（当前深色）' : ''}</Text>
+      <View className='foot-btn' onClick={pickTheme}>
+        <Text className='foot-text'>外观 · {THEME_PREFS.find((p) => p.key === themePref)?.label}{themePref === 'system' && dark ? '（当前深色）' : ''}</Text>
       </View>
-      <View className='clear-btn' onClick={openCloud}>
-        <Text className='clear-text'>☁️ 云同步 · 同步码：{formatOwnerId(ownerId || getOwnerId())}</Text>
+      <View className='foot-btn' onClick={openCloud}>
+        <Text className='foot-text'>云同步 · 同步码：{formatOwnerId(ownerId || getOwnerId())}</Text>
       </View>
-      <View className='clear-btn' onClick={clearAll}>
-        <Text className='clear-text'>清除所有数据</Text>
+      <View className='foot-btn' onClick={clearAll}>
+        <Text className='foot-text'>清除所有数据</Text>
       </View>
 
       {/* ====== 云同步 / 同步码弹窗 ====== */}
       {showCloud && (
         <View className='modal' onClick={() => setShowCloud(false)}>
           <View className='modal-box' onClick={(e) => e.stopPropagation()}>
-            <Text className='modal-title'>☁️ 云同步</Text>
-            <Text style={`font-size:24rpx;color:${cloudTest === null ? 'var(--muted)' : cloudTest.real ? '#10B981' : '#EF4444'};display:block;margin-bottom:16rpx`}>
+            <Text className='modal-title'>云同步</Text>
+            <Text className={`modal-note ${cloudTest === null ? '' : cloudTest.real ? 't-inc' : 't-exp'}`} style='margin-bottom:18rpx'>
               {cloudTest === null ? '正在检测云端连通…' : cloudTest.detail}
             </Text>
 
-            <Text style='font-size:26rpx;color:var(--text);font-weight:600;display:block;margin-bottom:8rpx'>我的同步码</Text>
+            <Text className='modal-sub'>我的同步码</Text>
             <View style='display:flex;align-items:center;gap:16rpx;margin-bottom:24rpx'>
-              <Text style='font-size:32rpx;font-weight:700;color:#FF6B35;letter-spacing:2rpx'>{formatOwnerId(ownerId)}</Text>
-              <View className='btn btn-ok' style='height:56rpx;padding:0 24rpx' onClick={copyOwnerId}><Text style='color:#fff;font-size:24rpx'>复制</Text></View>
+              <Text style='font-size:32rpx;font-weight:500;color:var(--accent);letter-spacing:2rpx'>{formatOwnerId(ownerId)}</Text>
+              <View className='btn btn-ok' style='height:56rpx;padding:0 24rpx;display:flex;align-items:center' onClick={copyOwnerId}><Text style='color:#fff;font-size:24rpx'>复制</Text></View>
             </View>
-            <Text style='font-size:22rpx;color:var(--muted);display:block;margin-bottom:24rpx'>
+            <Text className='modal-note' style='margin-bottom:26rpx'>
               在电脑桌面端输入同一个码，手机和电脑就同步同一本账；别人用小程序会自动分到各自的账本，互相看不到
             </Text>
 
-            <Text style='font-size:26rpx;color:var(--text);font-weight:600;display:block;margin-bottom:8rpx'>输入桌面端的码，加入同一本账</Text>
+            <Text className='modal-sub'>输入桌面端的码，加入同一本账</Text>
             <View className='input-wrap'>
               <Input className='input' placeholder='如：ABCD-EFGH-JKMN' value={joinInput} onInput={(e) => setJoinInput(e.detail.value)} maxlength={16} />
             </View>
@@ -381,17 +353,17 @@ export default function Index(): JSX.Element {
             </View>
 
             {/* ====== v0.8.8 高级设置：自定义云环境 ID（默认折叠，和桌面端云设置对齐） ====== */}
-            <View style='margin-top:28rpx;padding-top:20rpx;border-top:1rpx solid var(--border,#EEE)' onClick={() => setShowEnv(!showEnv)}>
-              <Text style='font-size:22rpx;color:var(--muted)'>⚙️ 自定义云环境 ID（高级）{showEnv ? ' ▲' : ' ▼'}</Text>
+            <View style='margin-top:28rpx;padding-top:20rpx;border-top:1rpx solid var(--line)' onClick={() => setShowEnv(!showEnv)}>
+              <Text className='modal-note'>自定义云环境 ID（高级）{showEnv ? ' ▲' : ' ▼'}</Text>
             </View>
             {showEnv && (
               <View>
-                <Text style='font-size:22rpx;color:var(--muted);display:block;margin:12rpx 0 8rpx'>
+                <Text className='modal-note' style='margin:12rpx 0 10rpx'>
                   自己有微信云开发/CloudBase 环境时，填它的环境 ID，账本就存进你自己的云数据库；不填则用默认环境。
                   注意：换环境后各环境的账互不可见，需在新环境里重新输入同步码对码
                 </Text>
-                <Text style='font-size:22rpx;color:var(--text);display:block;margin-bottom:8rpx'>
-                  当前环境：<Text style='color:#FF6B35'>{getEnvId() || '本地模拟云'}</Text>{getEnvId() === getDefaultEnvId() ? '（默认）' : '（自定义）'}
+                <Text className='modal-note' style='color:var(--text);margin-bottom:10rpx'>
+                  当前环境：<Text style='color:var(--accent)'>{getEnvId() || '本地模拟云'}</Text>{getEnvId() === getDefaultEnvId() ? '（默认）' : '（自定义）'}
                 </Text>
                 <View className='input-wrap'>
                   <Input className='input' placeholder={`默认：${getDefaultEnvId()}`} value={envInput} onInput={(e) => setEnvInput(e.detail.value)} />

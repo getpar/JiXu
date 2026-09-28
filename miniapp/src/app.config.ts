@@ -9,14 +9,14 @@ export default defineAppConfig({
     'pages/todos/index',
   ],
   window: {
-    backgroundTextStyle: 'light',
-    navigationBarBackgroundColor: '#FF6B35',
+    backgroundTextStyle: 'dark',
+    navigationBarBackgroundColor: '#FFFFFF',
     navigationBarTitleText: '每日小记',
-    navigationBarTextStyle: 'white',
+    navigationBarTextStyle: 'black',
   },
   tabBar: {
-    color: '#94A3B8',
-    selectedColor: '#FF6B35',
+    color: '#A8A8A4',
+    selectedColor: '#2E3A8C',
     backgroundColor: '#FFFFFF',
     borderStyle: 'white',
     list: [

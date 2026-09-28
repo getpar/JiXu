@@ -10,7 +10,6 @@ import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 const cycleLabels: Record<string, string> = { daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' }
-const cycleTags: Record<string, string> = { daily: '☀️', weekly: '📆', monthly: '📅', yearly: '🎯' }
 
 export default function Recurring(): JSX.Element {
   const dark = useThemeDark()
@@ -97,7 +96,7 @@ export default function Recurring(): JSX.Element {
   }
 
   const cycleKeys = ['monthly', 'weekly', 'daily', 'yearly']
-  const cycleNames = cycleKeys.map((k) => `${cycleTags[k]} ${cycleLabels[k]}`)
+  const cycleNames = cycleKeys.map((k) => cycleLabels[k])
   // Picker 用中文名展示，内部用 key 存储
   const catNames = categories.map((c) => c.name)
   const catKeys  = categories.map((c) => c.key)
@@ -109,7 +108,7 @@ export default function Recurring(): JSX.Element {
       {/* 顶栏 */}
       <View className='top-bar'>
         <Text className='back-btn' onClick={() => Taro.navigateBack()}>← 返回</Text>
-        <Text className='title'>🔁 周期账单</Text>
+        <Text className='title'>周期账单</Text>
         <Text className='placeholder' />
       </View>
 
@@ -126,7 +125,6 @@ export default function Recurring(): JSX.Element {
       {/* 列表 */}
       {bills.length === 0 ? (
         <View className='empty'>
-          <Text className='empty-icon'>📋</Text>
           <Text>暂无周期账单</Text>
         </View>
       ) : (
@@ -146,7 +144,7 @@ export default function Recurring(): JSX.Element {
             {/* 信息行 */}
             <View className='bill-info'>
               <View className={`cycle-tag ${b.cycle}`}>
-                <Text>{cycleTags[b.cycle]} {cycleLabels[b.cycle]}</Text>
+                <Text>{cycleLabels[b.cycle]}</Text>
               </View>
               <Text className='next-date'>下次：{b.nextDate}</Text>
               {b.note ? <Text className='note-text'>· {b.note}</Text> : null}
@@ -158,7 +156,7 @@ export default function Recurring(): JSX.Element {
                 <Text>{b.isActive ? '已启用' : '已停用'}</Text>
               </View>
               <View className='exec-btn' onClick={() => handleExecute(b)}>
-                <Text>⚡ 立即记录</Text>
+                <Text>立即记录</Text>
               </View>
               <View className='del-btn' onClick={() => handleDelete(b.id)}>
                 <Text>删除</Text>
@@ -196,7 +194,7 @@ export default function Recurring(): JSX.Element {
             <View className='form-item'>
               <Text className='form-label'>周期</Text>
               <Picker mode='selector' range={cycleNames} value={cycleKeys.indexOf(formCycle)} onChange={(e) => setFormCycle(cycleKeys[Number(e.detail.value)])}>
-                <View className='picker'><Text>{cycleTags[formCycle]} {cycleLabels[formCycle]}</Text><Text className='arrow'>▼</Text></View>
+                <View className='picker'><Text>{cycleLabels[formCycle]}</Text><Text className='arrow'>▼</Text></View>
               </Picker>
             </View>
 

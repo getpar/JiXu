@@ -62,7 +62,7 @@ export default function History(): JSX.Element {
 
   // v0.8.5 彻底删除：本地物理删除 + 注销凭条上云，所有设备的回收站都会清掉这一笔，不可再恢复
   async function handlePurge(id: string): Promise<void> {
-    Taro.showModal({ title: '彻底删除？', content: '这笔账将从手机和所有设备上永久清除，无法恢复', confirmColor: '#EF4444', success: async (res) => {
+    Taro.showModal({ title: '彻底删除？', content: '这笔账将从手机和所有设备上永久清除，无法恢复', confirmColor: '#C0453C', success: async (res) => {
       if (res.confirm) {
         await purgeRecord(id)
         setRecords(await getRecords()); setDeletedList(getDeletedRecords())
@@ -188,7 +188,7 @@ export default function History(): JSX.Element {
                 <Text className='tag orange'>{r.categoryName}</Text>
                 <Text className='tag'>{r.subcategoryName}</Text>
                 {r.photo ? (
-                  <Text className='tag photo-tag' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>📷 凭证</Text>
+                  <Text className='tag photo-tag' onClick={() => Taro.previewImage({ current: r.photo, urls: [r.photo] })}>凭证</Text>
                 ) : null}
               </View>
               <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
@@ -208,7 +208,7 @@ export default function History(): JSX.Element {
       {deletedList.length > 0 && (
         <View className='trash'>
           <View className='trash-head' onClick={() => setTrashOpen(!trashOpen)}>
-            <Text className='trash-title'>🗑 已删除 ({deletedList.length})</Text>
+            <Text className='trash-title'>已删除 ({deletedList.length})</Text>
             <Text className='trash-arrow'>{trashOpen ? '收起 ▴' : '展开 ▾'}</Text>
           </View>
           {trashOpen && (

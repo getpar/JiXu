@@ -21,18 +21,9 @@ function lastMonths(n: number): string[] {
   return arr
 }
 
-const catColors: Record<string, string> = {
-  food: '#EF4444', transport: '#3B82F6', shopping: '#8B5CF6',
-  housing: '#F97316', entertainment: '#10B981', medical: '#EC4899',
-  education: '#06B6D4', social: '#F59E0B', finance: '#6366F1',
-  other: '#6B7280', income: '#10B981',
-}
-
-const catEmoji: Record<string, string> = {
-  food: '🍜', transport: '🚗', shopping: '🛒', housing: '🏠',
-  entertainment: '🎮', medical: '💊', education: '📚', social: '🎁',
-  finance: '💰', other: '📦',
-}
+/** 「靛」单色系：按金额排名从深到浅取色，替代原来的彩虹配色 */
+const RAMP = ['#2E3A8C', '#3F4C9C', '#505DAC', '#6B74C4', '#8289D0', '#9AA0DA', '#A9AEE0', '#B8BCE6', '#C7CAEC', '#D6D8F2']
+const colorAt = (i: number): string => RAMP[i % RAMP.length]
 
 function formatAmount(v: number): string {
   if (v >= 10000) return (v / 10000).toFixed(1) + 'w'
@@ -43,12 +34,11 @@ function formatAmount(v: number): string {
 function buildConic(stats: any[], sum: number): string {
   let angle = 0
   const stops: string[] = []
-  for (const s of stats) {
+  stats.forEach((s, i) => {
     const sweep = (s.total / sum) * 360
-    const color = catColors[s.categoryKey] || '#6B7280'
-    stops.push(`${color} ${angle.toFixed(1)}deg ${(angle + sweep).toFixed(1)}deg`)
+    stops.push(`${colorAt(i)} ${angle.toFixed(1)}deg ${(angle + sweep).toFixed(1)}deg`)
     angle += sweep
-  }
+  })
   return `conic-gradient(${stops.join(', ')})`
 }
 
@@ -92,6 +82,11 @@ export default function Stats(): JSX.Element {
   const prevM = months[months.length - 2]?.total || 0
   const momPct = prevM > 0 ? ((curM - prevM) / prevM) * 100 : null
 
+  // 月度报告所需的派生数据
+  const expRecs = monthRecs.filter((r) => r.type === 'expense')
+  const recordDays = new Set(expRecs.map((r) => r.date)).size
+  const maxRec = expRecs.length > 0 ? expRecs.reduce((a, b) => (b.amount > a.amount ? b : a)) : null
+
   return (
     <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* ---- 类型切换 ---- */}
@@ -100,19 +95,17 @@ export default function Stats(): JSX.Element {
         <View className={`type-btn ${type === 'income' ? 'active income' : ''}`} onClick={() => setType('income')}><Text>收入</Text></View>
       </View>
 
-      {/* ---- 合计卡片 ---- */}
-      <View className='card total-card'>
-        <Text className='total-label'>本月{type === 'expense' ? '支出' : '收入'}</Text>
-        <Text className={`total-value ${type === 'income' ? 'green' : 'red'}`}>¥{total.toFixed(2)}</Text>
-        <View className='total-meta'>
-          <Text className='total-sub'>{stats.length} 个类别</Text>
-          {stats.length > 0 && <Text className='total-sub'>· 最高 {stats[0]?.categoryName}</Text>}
-        </View>
+      {/* ---- 合计主卡 ---- */}
+      <View className='hero'>
+        <Text className='hero-label'>本月{type === 'expense' ? '支出' : '收入'}</Text>
+        <Text className='hero-value'>¥{total.toFixed(2)}</Text>
+        <Text className='hero-meta'>
+          {stats.length} 个类别{stats.length > 0 ? ` · 最高 ${stats[0]?.categoryName}` : ''}
+        </Text>
       </View>
 
       {stats.length === 0 ? (
         <View className='empty-state'>
-          <Text className='empty-icon'>📊</Text>
           <Text className='empty-text'>暂无数据</Text>
           <Text className='empty-hint'>记一笔账后这里就会出现统计图表</Text>
         </View>
@@ -120,10 +113,9 @@ export default function Stats(): JSX.Element {
         <>
           {/* ====== v0.7.9 月度报告：人话总结这个月（仅支出视角） ====== */}
           {type === 'expense' && (
-            <View className='card report-card'>
-              <Text className='section-title'>📋 本月报告</Text>
+            <View className='card'>
+              <Text className='section-title'>本月报告</Text>
               <View className='report-line'>
-                <Text className='report-dot'>💸</Text>
                 <Text className='report-text'>
                   这个月花了 <Text className='report-strong'>¥{total.toFixed(0)}</Text>
                   {momPct === null ? '，还没有上月数据可比' : momPct >= 0
@@ -133,37 +125,22 @@ export default function Stats(): JSX.Element {
               </View>
               {stats[0] && (
                 <View className='report-line'>
-                  <Text className='report-dot'>👑</Text>
                   <Text className='report-text'>
                     大头是「{stats[0].categoryName}」¥{stats[0].total.toFixed(0)}
                     ，占 {total > 0 ? ((stats[0].total / total) * 100).toFixed(0) : 0}%
                   </Text>
                 </View>
               )}
-              {(() => {
-                const expRecs = monthRecs.filter((r) => r.type === 'expense')
-                const days = new Set(expRecs.map((r) => r.date)).size
-                return (
-                  <View className='report-line'>
-                    <Text className='report-dot'>🧾</Text>
-                    <Text className='report-text'>共 {expRecs.length} 笔 · 记了 {days} 天</Text>
-                  </View>
-                )
-              })()}
-              {(() => {
-                const expRecs = monthRecs.filter((r) => r.type === 'expense')
-                if (expRecs.length === 0) return null
-                const maxRec = expRecs.reduce((a, b) => (b.amount > a.amount ? b : a))
-                return (
-                  <View className='report-line'>
-                    <Text className='report-dot'>🔍</Text>
-                    <Text className='report-text'>最大一笔：¥{maxRec.amount.toFixed(0)} · {maxRec.subcategoryName}（{maxRec.date.slice(5)}）</Text>
-                  </View>
-                )
-              })()}
-              {incTotal > 0 && (
+              <View className='report-line'>
+                <Text className='report-text'>共 {expRecs.length} 笔 · 记了 {recordDays} 天</Text>
+              </View>
+              {maxRec && (
                 <View className='report-line'>
-                  <Text className='report-dot'>⚖️</Text>
+                  <Text className='report-text'>最大一笔：¥{maxRec.amount.toFixed(0)} · {maxRec.subcategoryName}（{maxRec.date.slice(5)}）</Text>
+                </View>
+              )}
+              {incTotal > 0 && (
+                <View className='report-line last'>
                   <Text className='report-text'>
                     收入 ¥{incTotal.toFixed(0)}，结余 <Text className={incTotal - total >= 0 ? 'report-down' : 'report-up'}>
                       {incTotal - total >= 0 ? '+' : ''}{(incTotal - total).toFixed(0)}
@@ -176,7 +153,7 @@ export default function Stats(): JSX.Element {
 
           {/* ====== v0.7.6 环形饼图：分类占比一眼看 ====== */}
           <View className='card'>
-            <Text className='section-title'>🥧 分类饼图</Text>
+            <Text className='section-title'>分类饼图</Text>
             <View className='pie-wrap'>
               <View className='pie' style={{ background: buildConic(stats, total) }}>
                 <View className='pie-hole'>
@@ -185,11 +162,11 @@ export default function Stats(): JSX.Element {
                 </View>
               </View>
               <View className='pie-legend'>
-                {stats.map((s) => {
+                {stats.map((s, i) => {
                   const pct = total > 0 ? (s.total / total) * 100 : 0
                   return (
                     <View key={s.categoryKey} className='legend-row'>
-                      <View className='legend-dot' style={{ background: catColors[s.categoryKey] || '#6B7280' }} />
+                      <View className='legend-dot' style={{ background: colorAt(i) }} />
                       <Text className='legend-name'>{s.categoryName}</Text>
                       <Text className='legend-pct'>{pct.toFixed(0)}%</Text>
                     </View>
@@ -201,15 +178,14 @@ export default function Stats(): JSX.Element {
 
           {/* ====== 柱状图：分类对比 ====== */}
           <View className='card'>
-            <Text className='section-title'>📊 分类对比</Text>
+            <Text className='section-title'>分类对比</Text>
             <View className='bar-chart'>
-              {stats.map((s) => {
+              {stats.map((s, i) => {
                 const h = Math.max((s.total / maxAmount) * 100, 4)
-                const color = catColors[s.categoryKey] || '#6B7280'
                 return (
                   <View key={s.categoryKey} className='bar-col'>
                     <Text className='bar-val'>¥{formatAmount(s.total)}</Text>
-                    <View className='bar-bar' style={{ height: `${h}%`, background: color }} />
+                    <View className='bar-bar' style={{ height: `${h}%`, background: colorAt(i) }} />
                     <Text className='bar-label'>{s.categoryName.slice(0, 3)}</Text>
                   </View>
                 )
@@ -219,16 +195,15 @@ export default function Stats(): JSX.Element {
 
           {/* ====== 横向进度条：分类占比 ====== */}
           <View className='card'>
-            <Text className='section-title'>🍩 分类占比</Text>
+            <Text className='section-title'>分类占比</Text>
             {stats.map((s, i) => {
               const pct = total > 0 ? (s.total / total) * 100 : 0
-              const color = catColors[s.categoryKey] || '#6B7280'
               return (
-                <View key={s.categoryKey} className='pct-row'>
+                <View key={s.categoryKey} className={`pct-row${i === stats.length - 1 ? ' last' : ''}`}>
                   <View className='pct-header'>
                     <View className='pct-left'>
-                      <View className='pct-dot' style={{ background: color }} />
-                      <Text className='pct-name'>{catEmoji[s.categoryKey] || ''} {s.categoryName}</Text>
+                      <View className='pct-dot' style={{ background: colorAt(i) }} />
+                      <Text className='pct-name'>{s.categoryName}</Text>
                     </View>
                     <View className='pct-right'>
                       <Text className='pct-amount'>¥{s.total.toFixed(0)}</Text>
@@ -236,7 +211,7 @@ export default function Stats(): JSX.Element {
                     </View>
                   </View>
                   <View className='pct-bar'>
-                    <View className='pct-fill' style={{ width: `${pct}%`, background: color }} />
+                    <View className='pct-fill' style={{ width: `${pct}%`, background: colorAt(i) }} />
                   </View>
                 </View>
               )
@@ -246,7 +221,7 @@ export default function Stats(): JSX.Element {
           {/* ====== 每日趋势 ====== */}
           {trend.length >= 2 && (
             <View className='card'>
-              <Text className='section-title'>📈 每日趋势</Text>
+              <Text className='section-title'>每日趋势</Text>
               <View className='trend-chart'>
                 {trend.map((d) => {
                   const h = Math.max((d.total / maxTrend) * 100, 3)
@@ -268,7 +243,7 @@ export default function Stats(): JSX.Element {
       {hasMonthData && (
         <View className='card'>
           <View className='month-head'>
-            <Text className='section-title' style={{ marginBottom: 0 }}>📅 月度对比</Text>
+            <Text className='section-title' style={{ marginBottom: 0 }}>月度对比</Text>
             {momPct !== null && (
               <Text className={`month-mom ${momPct > 0 ? 'red' : 'green'}`}>
                 较上月 {momPct > 0 ? '↑' : '↓'}{Math.abs(momPct).toFixed(0)}%
