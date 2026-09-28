@@ -24,8 +24,8 @@
 }
 .input {
   font-size: 28rpx; border: 1rpx solid var(--line); border-radius: 14rpx;
-  padding: 16rpx 20rpx; width: 100%; box-sizing: border-box;
-  background: var(--soft); height: 72rpx; line-height: 40rpx;
+  padding: 0 20rpx; width: 100%; box-sizing: border-box;
+  background: var(--soft); height: 72rpx; line-height: 72rpx;
 }
 .add-actions { display: flex; justify-content: flex-end; gap: 20rpx; margin-top: 4rpx; flex-wrap: wrap; }
 .cancel-btn { font-size: 27rpx; color: var(--sub); padding: 12rpx 24rpx; white-space: nowrap; }
@@ -57,8 +57,8 @@
 .inline-row { display: flex; gap: 12rpx; align-items: center; }
 .inline-input {
   flex: 1; font-size: 28rpx; border: 1rpx solid var(--line);
-  border-radius: 14rpx; padding: 12rpx 16rpx; background: var(--card);
-  height: 68rpx; line-height: 44rpx; box-sizing: border-box;
+  border-radius: 14rpx; padding: 0 16rpx; background: var(--card);
+  height: 68rpx; line-height: 68rpx; box-sizing: border-box;
 }
 .inline-ok {
   font-size: 27rpx; color: #fff; background: var(--accent);

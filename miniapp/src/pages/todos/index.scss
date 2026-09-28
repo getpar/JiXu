@@ -106,7 +106,7 @@
 .picker { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 24rpx; border: 1rpx solid var(--line); border-radius: 16rpx; background: var(--soft); font-size: 28rpx; color: var(--text); }
 .picker .arrow { font-size: 20rpx; color: var(--muted); }
 
-.note-input { border: 1rpx solid var(--line); border-radius: 16rpx; padding: 20rpx 24rpx; background: var(--soft); height: 80rpx; line-height: 40rpx; font-size: 28rpx; box-sizing: border-box; }
+.note-input { border: 1rpx solid var(--line); border-radius: 16rpx; padding: 0 24rpx; background: var(--soft); height: 80rpx; line-height: 80rpx; font-size: 28rpx; box-sizing: border-box; }
 
 .modal-btns { display: flex; justify-content: flex-end; gap: 20rpx; margin-top: 28rpx; }
 .btn { padding: 18rpx 44rpx; border-radius: 14rpx; font-size: 27rpx; text-align: center; }
