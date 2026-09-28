@@ -5,6 +5,7 @@ node_modules/
 dist/
 release/
 release_new/
+release_build/
 out/
 
 # ===== 本地临时/遗留目录 =====

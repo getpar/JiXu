@@ -4,6 +4,15 @@ directories:
   output: release
   buildResources: build
 
+# 明确排除打包产物目录与压缩包，避免它们被当成源码打进 app.asar
+# （尤其是用 -c.directories.output 临时改输出目录时，旧的 release/ 会被误打包）
+files:
+  - "**/*"
+  - "!release*/**"
+  - "!**/*.zip"
+  - "!**/*.7z"
+  - "!**/*.blockmap"
+
 win:
   icon: build/icon.ico
   target:
