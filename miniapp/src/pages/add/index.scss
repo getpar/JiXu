@@ -13,7 +13,7 @@
 /* 金额 */
 .amount-row { display: flex; align-items: center; }
 .currency { font-size: 44rpx; font-weight: 500; color: var(--accent); margin-right: 12rpx; }
-.amount-input { font-size: 44rpx; font-weight: 500; flex: 1; height: 64rpx; }
+.amount-input { font-size: 44rpx; font-weight: 500; flex: 1; height: 64rpx; line-height: 64rpx; }
 
 /* 选择器 */
 .picker { display: flex; justify-content: space-between; align-items: center; font-size: 29rpx; padding: 8rpx 0; color: var(--text); }

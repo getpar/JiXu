@@ -67,7 +67,7 @@
 .form-label { font-size: 24rpx; color: var(--sub); display: block; margin-bottom: 12rpx; }
 .amount-row { display: flex; align-items: center; }
 .currency { font-size: 40rpx; font-weight: 500; color: var(--accent); margin-right: 12rpx; }
-.amount-input { font-size: 40rpx; font-weight: 500; flex: 1; height: 60rpx; }
+.amount-input { font-size: 40rpx; font-weight: 500; flex: 1; height: 60rpx; line-height: 60rpx; }
 .picker { display: flex; justify-content: space-between; align-items: center; font-size: 29rpx; padding: 10rpx 0; color: var(--text); }
 .sub-grid { display: flex; flex-wrap: wrap; gap: 12rpx; }
 .sub-item { padding: 12rpx 24rpx; border-radius: 12rpx; font-size: 26rpx; background: var(--soft); color: var(--sub); }
