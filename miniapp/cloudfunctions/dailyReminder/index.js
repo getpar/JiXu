@@ -28,8 +28,12 @@ const TEMPLATE_ID = '6vnLtfnk_r7n7IpsCVJU06ZWRhKWD9v0Do2A6THWsZ8'
 // 用户点击消息后跳转到的小程序页面
 const TARGET_PAGE = 'pages/todos/index'
 
-// 消息下发的小程序版本：正式版用 'formal'；用开发版/体验版测试时改成 'developer' / 'trial'
-const MINIPROGRAM_STATE = 'formal'
+// 用户点消息后「跳转到哪个版本的小程序」：
+//   'developer' 开发版（开发者工具/预览） / 'trial' 体验版 / 'formal' 正式版
+// ⚠️ 必须与「你正在使用的版本」一致，否则用户点消息跳不过去（提示小程序未发布）。
+//    当前状态：小程序还是**体验版** → 用 'trial'
+//    👉 等小程序正式发布后，把这里改回 'formal' 并重新上传云函数。
+const MINIPROGRAM_STATE = 'trial'
 
 // 单次运行最多处理多少条
 const MAX_PER_RUN = 200
@@ -55,27 +59,47 @@ function beijingDateTimeStr(ts) {
  *   提醒内容 thing2 / 计划标题 thing13 / 事项名称 thing10 / 到期日期 time3 / 创建日期 time9
  * 若以后换模板，请对照新模板的「详细内容」逐个改这里的 key。
  */
-function buildData(item) {
+function buildData(dueItems, createdAt) {
+  const n = dueItems.length
+  const first = dueItems[0] || {}
   // thing 类型：20 个字符以内
-  const title = String(item.title || '待办提醒').slice(0, 20)
-  const note = String(item.note || '今天有件事该做啦').slice(0, 20)
-  // 到期日期：待办本身只存了日期（YYYY-MM-DD），补一个早 8 点
-  const dueStr = /^\d{4}-\d{2}-\d{2}$/.test(String(item.dueDate || ''))
-    ? `${item.dueDate} 08:00:00`
+  const title = String(first.title || '待办提醒').slice(0, 20)
+  const rest = dueItems.slice(1).map((x) => x && x.title).filter(Boolean).join('、')
+
+  // 多个待办时：事项名称讲「今天 N 个待办到期」，提醒内容列其余标题；单个时保持原样
+  const nameVal = (n > 1 ? `今天 ${n} 个待办到期` : title).slice(0, 20)
+  const noteVal = (n > 1
+    ? (rest ? `还有：${rest}` : `共 ${n} 个待办待完成`)
+    : String(first.note || '今天有件事该做啦')).slice(0, 20)
+
+  // 到期日期：待办只存了日期（YYYY-MM-DD），补一个早 8 点
+  const dueStr = /^\d{4}-\d{2}-\d{2}$/.test(String(first.dueDate || ''))
+    ? `${first.dueDate} 08:00:00`
     : beijingDateTimeStr()
   // 创建日期：优先用文档里的 createdAt，没有就用当前时间
-  const createdStr = item.createdAt ? beijingDateTimeStr(item.createdAt) : beijingDateTimeStr()
+  const createdStr = createdAt ? beijingDateTimeStr(createdAt) : beijingDateTimeStr()
 
   return {
-    thing2: { value: note },     // 提醒内容
+    thing2: { value: noteVal },  // 提醒内容
     thing13: { value: title },   // 计划标题
-    thing10: { value: title },   // 事项名称
+    thing10: { value: nameVal }, // 事项名称
     time3: { value: dueStr },    // 到期日期
     time9: { value: createdStr },// 创建日期
   }
 }
 
-/** 分页拉取 dueDate <= today 的文档（单次 get 上限 100 条） */
+/**
+ * 从一条 push_subs 文档里取出「今天到期」的待办（已按到期日升序）。
+ * 文档结构：{ items: [{ dueDate, title, note }], remaining, sentFor, ... }
+ */
+function dueItemsOf(doc, today) {
+  const items = Array.isArray(doc.items) ? doc.items : []
+  return items
+    .filter((x) => x && x.dueDate && String(x.dueDate) <= today)
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+}
+
+/** 分页拉取「可能已到期」的文档（单次 get 上限 100 条） */
 async function fetchCandidates(today) {
   const out = []
   const PAGE = 100
@@ -118,12 +142,19 @@ async function sendNow() {
     return { ok: false, reason: '还没有订阅记录，请先点「开启到期提醒」并允许通知' }
   }
 
+  // 测试时即使当前没有到期待办，也造一条假数据，方便验证模板字段是否正确
+  const today = beijingDateStr()
+  let due = dueItemsOf(item, today)
+  if (due.length === 0) {
+    due = [{ dueDate: today, title: String(item.title || '测试提醒').slice(0, 20), note: '这是一条测试消息' }]
+  }
+
   try {
     await cloud.openapi.subscribeMessage.send({
       touser: openid,
       templateId: TEMPLATE_ID,
       page: TARGET_PAGE,
-      data: buildData(item),
+      data: buildData(due, item.createdAt),
       miniprogramState: MINIPROGRAM_STATE,
     })
     await db.collection(COLLECTION).doc(item._id).update({
@@ -157,37 +188,47 @@ exports.main = async (event) => {
   }
 
   const candidates = await fetchCandidates(today)
+
+  // 方案甲：一条消息概括「当天所有到期待办」。
+  // 发送条件 = 还有额度 + 今天到期的项里存在「尚未提醒过的到期日」
+  // （sentFor 记录上次已覆盖到的最晚到期日，避免同一个到期日重复提醒）
   const todo = candidates
-    .filter((it) => it.dueDate && (it.remaining || 0) > 0 && it.sentFor !== it.dueDate)
+    .map((doc) => {
+      const due = dueItemsOf(doc, today)
+      const pending = due.filter((x) => String(x.dueDate) > String(doc.sentFor || ''))
+      return { doc, due, pending }
+    })
+    .filter((x) => x.due.length > 0 && x.pending.length > 0 && (x.doc.remaining || 0) > 0)
     .slice(0, MAX_PER_RUN)
 
   let sent = 0
   let noQuota = 0
   const errors = []
 
-  for (const item of todo) {
+  for (const { doc, due } of todo) {
     try {
       await cloud.openapi.subscribeMessage.send({
-        touser: item._openid,
+        touser: doc._openid,
         templateId: TEMPLATE_ID,
         page: TARGET_PAGE,
-        data: buildData(item),
+        data: buildData(due, doc.createdAt),
         miniprogramState: MINIPROGRAM_STATE,
       })
       sent++
-      await db.collection(COLLECTION).doc(item._id).update({
-        data: { remaining: _.inc(-1), sentFor: item.dueDate, updatedAt: Date.now() },
+      const maxDue = String(due[due.length - 1].dueDate)
+      await db.collection(COLLECTION).doc(doc._id).update({
+        data: { remaining: _.inc(-1), sentFor: maxDue, updatedAt: Date.now() },
       })
     } catch (e) {
       const code = e && e.errCode
       if (code === 43101) {
         // 用户拒收 / 已取消订阅：清零额度，之后不再尝试，避免每次空跑
-        await db.collection(COLLECTION).doc(item._id).update({
+        await db.collection(COLLECTION).doc(doc._id).update({
           data: { remaining: 0, updatedAt: Date.now() },
         }).catch(() => {})
         noQuota++
       } else {
-        errors.push({ id: item._id, code: code, msg: e && e.errMsg })
+        errors.push({ id: doc._id, code: code, msg: e && e.errMsg })
       }
     }
   }

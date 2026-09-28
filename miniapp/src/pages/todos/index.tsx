@@ -5,7 +5,7 @@ import {
   getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories, localDateStr,
 } from '../../utils/storage'
 import type { Todo } from '../../utils/storage'
-import { enablePushFromTap, pushResultText, getPushState, sendTestReminder } from '../../utils/push'
+import { enablePushFromTap, pushResultText, getPushState, sendTestReminder, autoRequestPushOnAction, reportPushState } from '../../utils/push'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
@@ -36,6 +36,8 @@ export default function Todos(): JSX.Element {
 
   async function loadData(): Promise<void> {
     setTodos(await getTodos())
+    // 待办有变动就顺手把最新列表同步到云端（供每天 8:00 的提醒使用；不加额度）
+    reportPushState(0).catch(() => { /* 未配置云环境时忽略 */ })
   }
 
   async function loadCategories(): Promise<void> {
@@ -111,6 +113,9 @@ export default function Todos(): JSX.Element {
   }
 
   async function handleComplete(todo: Todo): Promise<void> {
+    // v0.9.3 「顺手攒额度」：⚠️ 必须先同步发起订阅请求（微信要求点击回调里同步调用），
+    // 用户勾选「总是保持以上选择」后不再弹窗、静默 +1 条；拒绝过则本地记一笔不再打扰。
+    const pushTask = autoRequestPushOnAction()
     await completeTodo(todo.id)
     if (todo.amount && todo.amount > 0) {
       Taro.showToast({ title: `已完成并记账 ¥${todo.amount.toFixed(0)}`, icon: 'success' })
@@ -119,6 +124,7 @@ export default function Todos(): JSX.Element {
     }
     loadData()
     Taro.eventCenter.trigger('dataChanged')
+    pushTask.then(() => loadPush()).catch(() => { /* ignore */ })
   }
 
   async function handleDelete(id: string): Promise<void> {

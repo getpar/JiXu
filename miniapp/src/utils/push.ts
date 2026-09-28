@@ -46,14 +46,21 @@ export async function requestPushAuth(): Promise<PushResult> {
   }
 }
 
-/** 取「最近的到期项」：未完成且已到期/今天到期的待办里，日期最早的一条 */
-async function nearestDue(): Promise<{ dueDate: string; title: string; note: string } | null> {
+export type PushItem = { dueDate: string; title: string; note: string }
+
+/**
+ * 收集「所有未完成的活跃待办」上报给云函数。
+ * 云函数再按发送当天筛出「已到期」的那些，组装成**一条概括消息**（方案甲），
+ * 所以点一次额度就能覆盖一整天内的全部待办。
+ * 只上报日期 / 标题 / 备注，不含金额等隐私内容。
+ */
+async function collectItems(): Promise<PushItem[]> {
   const today = localDateStr()
   const todos = (await getTodos()).filter((t) => t.isActive && !t.completedDates.includes(today))
-  if (todos.length === 0) return null
-  const sorted = [...todos].sort((a, b) => a.nextDate.localeCompare(b.nextDate))
-  const t = sorted[0]
-  return { dueDate: t.nextDate, title: t.title, note: t.note || '' }
+  return todos
+    .map((t) => ({ dueDate: t.nextDate, title: t.title, note: t.note || '' }))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .slice(0, 50) // 上限，避免文档过大
 }
 
 // wx 是微信小程序全局对象（Taro 编译产物中可用），此处不做类型依赖
@@ -101,12 +108,15 @@ export async function reportPushState(addQuota = 0): Promise<boolean> {
   const db = getCloudDatabase()
   if (!db) return false
 
-  const due = await nearestDue()
+  const items = await collectItems()
+  const first = items[0]
   const base: Record<string, any> = {
     ownerId: getOwnerId(),
-    dueDate: due ? due.dueDate : '',
-    title: due ? due.title : '',
-    note: due ? due.note : '',
+    items, // 全部未完成待办，供云函数筛「当天到期」并组装概括消息
+    // 冗余存「最早的到期日」，便于云函数按 dueDate 建索引查询
+    dueDate: first ? first.dueDate : '',
+    title: first ? first.title : '',
+    note: first ? first.note : '',
     updatedAt: Date.now(),
   }
 
@@ -151,6 +161,39 @@ export async function enablePushFromTap(): Promise<PushResult> {
   const ok = await reportPushState(auth === 'accepted' ? 1 : 0)
   if (!ok) return 'no-cloud'
   return auth
+}
+
+/** 用户明确拒绝过订阅后，就不再自动打扰（本地标记） */
+const AUTO_DECLINED_KEY = 'push_auto_declined'
+
+/**
+ * 「顺手攒额度」：挂在用户已有的高频动作（如「完成待办」）的点击回调里。
+ *
+ * ⚠️ 微信硬性要求：订阅请求必须在**用户点击的同步回调**里发起。
+ *    所以本函数返回 Promise，但内部 `requestSubscribeMessage` 是**同步发起**的 ——
+ *    调用方直接写 `autoRequestPushOnAction()` 不要 await，之后再取结果即可。
+ *
+ * 用户勾选弹窗里的「总是保持以上选择，不再询问」后，之后不再弹窗、静默 +1 条额度。
+ * 用户若明确拒绝过，则本地记一笔，之后不再打扰。
+ */
+export function autoRequestPushOnAction(): Promise<void> {
+  if (!isPushConfigured()) return Promise.resolve()
+  try {
+    if (Taro.getStorageSync(AUTO_DECLINED_KEY)) return Promise.resolve()
+  } catch { /* Storage 不可用则照常尝试 */ }
+
+  const p = requestPushAuth() // ← 同步发起
+  return p
+    .then(async (r) => {
+      if (r === 'rejected') {
+        try { Taro.setStorageSync(AUTO_DECLINED_KEY, '1') } catch { /* ignore */ }
+        return
+      }
+      if (r === 'accepted') {
+        await reportPushState(1)
+      }
+    })
+    .catch(() => { /* 静默失败，不打扰用户 */ })
 }
 
 /**
