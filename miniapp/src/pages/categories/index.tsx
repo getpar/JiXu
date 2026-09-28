@@ -10,7 +10,8 @@ const MAJORS = [
   { key: 'shopping', name: '购物消费' }, { key: 'housing', name: '住房居家' },
   { key: 'entertainment', name: '娱乐休闲' }, { key: 'medical', name: '医疗健康' },
   { key: 'education', name: '教育学习' }, { key: 'social', name: '人情往来' },
-  { key: 'finance', name: '金融保险' }, { key: 'other', name: '其他杂项' },
+  { key: 'finance', name: '金融保险' }, { key: 'pet', name: '宠物' },
+  { key: 'other', name: '其他杂项' },
 ]
 
 export default function Categories(): JSX.Element {
@@ -92,7 +93,7 @@ export default function Categories(): JSX.Element {
           <Text className='add-card-title'>添加新大类及第一个小类</Text>
           <View className='form-row'>
             <Text className='label'>大类名称</Text>
-            <Input className='input' placeholder='如：宠物开销' value={newMajorName} onInput={(e) => setNewMajorName(e.detail.value)} maxlength={10} />
+            <Input className='input' placeholder='如：育儿' value={newMajorName} onInput={(e) => setNewMajorName(e.detail.value)} maxlength={10} />
           </View>
           <View className='form-row'>
             <Text className='label'>小类名称</Text>

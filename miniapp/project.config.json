@@ -1,5 +1,6 @@
 {
   "miniprogramRoot": "dist/",
+  "cloudfunctionRoot": "cloudfunctions/",
   "projectname": "daily-notes-miniapp",
   "description": "每日小记小程序（Taro 编译产物在 dist/，改代码请改 src/ 后重新 build:weapp）",
   "appid": "wx556c3ea7340e945f",

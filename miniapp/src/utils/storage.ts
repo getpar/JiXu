@@ -199,7 +199,7 @@ function saveLocalRecords(list: RecordItem[]): void {
   Taro.setStorageSync('daily_records', JSON.stringify(list))
 }
 
-export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<void> {
+export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<string> {
   // v0.8.7 修正：基于全量列表（含回收站行）追加——旧版用 getRecords() 只拿存活行回写存储，
   // 会把本地回收站底单弄丢，导致同步时"已删的账"被当缺口从云端重新拉回复活
   const list = await getAllRecords()
@@ -212,6 +212,8 @@ export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<void> {
   try {
     await syncNow(true)
   } catch { /* 失败不阻塞，下次进页的 syncNow 会兜底补传 */ }
+  // v0.9.1 返回新记录 id：供记账页「撤销」定位刚记的这笔
+  return record.id
 }
 
 // v0.6.6 软删除：删除 = 标记 + 同步（把"删除凭证"推上云，另一端同步后也跟着标删；本地数据留底可恢复）
@@ -276,14 +278,22 @@ export async function getMonthTotal(month: string, type?: string): Promise<numbe
     .reduce((s, r) => s + r.amount, 0)
 }
 
-export async function getMonthStats(month: string, type?: string): Promise<{ categoryKey: string; categoryName: string; total: number }[]> {
+/** v0.9.1 level='cat' 按一级分类汇总（默认）；level='sub' 按二级分类汇总 */
+export async function getMonthStats(
+  month: string,
+  type?: string,
+  level: 'cat' | 'sub' = 'cat',
+): Promise<{ categoryKey: string; categoryName: string; total: number }[]> {
   const records = await getRecords()
   const map: Record<string, { categoryKey: string; categoryName: string; total: number }> = {}
   records
     .filter((r) => r.date.startsWith(month) && (!type || r.type === type))
     .forEach((r) => {
-      if (!map[r.categoryKey]) map[r.categoryKey] = { categoryKey: r.categoryKey, categoryName: r.categoryName, total: 0 }
-      map[r.categoryKey].total += r.amount
+      const key = level === 'sub' ? r.subcategoryKey : r.categoryKey
+      const name = level === 'sub' ? (r.subcategoryName || r.categoryName) : r.categoryName
+      if (!key) return
+      if (!map[key]) map[key] = { categoryKey: key, categoryName: name, total: 0 }
+      map[key].total += r.amount
     })
   return Object.values(map).sort((a, b) => b.total - a.total)
 }
@@ -332,8 +342,12 @@ export const DEFAULT_CATEGORIES = [
   { key: 'finance', name: '金融保险', subs: [
     { key: 'insurance', name: '保险缴费' }, { key: 'invest', name: '投资理财' }, { key: 'loan', name: '贷款还款' }, { key: 'fee', name: '手续费' },
   ]},
+  { key: 'pet', name: '宠物', subs: [
+    { key: 'pet_food', name: '宠物食品' }, { key: 'pet_medical', name: '宠物医疗' }, { key: 'pet_supply', name: '宠物用品' },
+    { key: 'pet_beauty', name: '美容洗护' }, { key: 'pet_boarding', name: '寄养服务' }, { key: 'pet_other', name: '其他宠物' },
+  ]},
   { key: 'other', name: '其他杂项', subs: [
-    { key: 'express', name: '快递邮寄' }, { key: 'pet', name: '宠物开销' }, { key: 'misc', name: '其他' },
+    { key: 'express', name: '快递邮寄' }, { key: 'misc', name: '其他' },
   ]},
 ]
 

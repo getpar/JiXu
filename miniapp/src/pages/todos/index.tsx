@@ -5,6 +5,7 @@ import {
   getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories, localDateStr,
 } from '../../utils/storage'
 import type { Todo } from '../../utils/storage'
+import { enablePushFromTap, pushResultText, getPushState, sendTestReminder } from '../../utils/push'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
@@ -18,6 +19,8 @@ export default function Todos(): JSX.Element {
   const [showModal, setShowModal] = useState(false)
   const [categories, setCategories] = useState<any[]>([])
   const [showDone, setShowDone] = useState(false)
+  // v0.9.2 到期提醒：剩余订阅额度（null = 未连接云环境 / 读取失败）
+  const [pushRemaining, setPushRemaining] = useState<number | null>(null)
 
   // 表单
   const [fTitle, setFTitle] = useState('')
@@ -29,7 +32,7 @@ export default function Todos(): JSX.Element {
   const [fTime, setFTime] = useState('')
   const [fNote, setFNote] = useState('')
 
-  useDidShow(() => { loadData(); loadCategories() })
+  useDidShow(() => { loadData(); loadCategories(); loadPush() })
 
   async function loadData(): Promise<void> {
     setTodos(await getTodos())
@@ -37,6 +40,27 @@ export default function Todos(): JSX.Element {
 
   async function loadCategories(): Promise<void> {
     setCategories(await getMergedCategories())
+  }
+
+  async function loadPush(): Promise<void> {
+    const st = await getPushState()
+    setPushRemaining(st ? st.remaining : null)
+  }
+
+  /** v0.9.2 点一下攒一次提醒额度：⚠️ 必须在 onClick 里调用（微信硬性要求） */
+  async function handleEnablePush(): Promise<void> {
+    const r = await enablePushFromTap()
+    Taro.showToast({ title: pushResultText(r), icon: 'none', duration: 2200 })
+    loadPush()
+  }
+
+  /** v0.9.2 立即测试：让云函数马上发一条，验证模板字段/额度是否正常 */
+  async function handleTestPush(): Promise<void> {
+    Taro.showLoading({ title: '发送中…' })
+    const r = await sendTestReminder()
+    Taro.hideLoading()
+    Taro.showModal({ title: r.ok ? '✅ 发送成功' : '发送失败', content: r.text, showCancel: false, confirmText: '知道了' })
+    loadPush()
   }
 
   const activeTodos = useMemo(() => todos.filter((t) => t.isActive).sort((a, b) => a.nextDate.localeCompare(b.nextDate)), [todos])
@@ -124,6 +148,26 @@ export default function Todos(): JSX.Element {
           <Text>今天有 {dueToday.length} 个待办到期还没完成</Text>
         </View>
       )}
+
+      {/* 到期提醒（订阅消息） */}
+      <View className='push-card' onClick={handleEnablePush}>
+        <View className='push-left'>
+          <Text className='push-title'>🔔 开启到期提醒</Text>
+          <Text className='push-desc'>
+            {pushRemaining === null
+              ? '开启后，待办到期当天微信会通知你'
+              : pushRemaining > 0
+                ? `已开启 · 剩余提醒额度 ${pushRemaining} 次`
+                : '额度已用完，点这里再攒一次'}
+          </Text>
+        </View>
+        <Text className='push-btn'>{pushRemaining !== null && pushRemaining > 0 ? '再攒一次' : '开启'}</Text>
+      </View>
+
+      {/* 立即测试（验证模板/字段配置，免去去云开发控制台手动跑云函数） */}
+      <View className='push-test' onClick={handleTestPush}>
+        <Text className='push-test-text'>立即测试一条提醒</Text>
+      </View>
 
       {/* 添加按钮 */}
       <View className='add-btn' onClick={() => { setShowModal(true); resetForm() }}>

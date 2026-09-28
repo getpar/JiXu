@@ -14,6 +14,7 @@ const MAJOR_CATEGORIES = [
   { key: 'education', name: '教育学习', emoji: '📚' },
   { key: 'social', name: '人情往来', emoji: '🎁' },
   { key: 'finance', name: '金融保险', emoji: '💰' },
+  { key: 'pet', name: '宠物', emoji: '🐾' },
   { key: 'other', name: '其他杂项', emoji: '📦' },
   { key: 'income', name: '收入来源', emoji: '💵' },
 ]

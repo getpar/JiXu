@@ -49,6 +49,13 @@
 .budget-pct.is-over { color: var(--exp); }
 .budget-foot { display: flex; justify-content: space-between; margin-top: 14rpx; }
 .budget-foot-text { font-size: 23rpx; color: var(--muted); }
+/* v0.9.1 剩余可花 / 日均可花 */
+.budget-left { display: flex; gap: 24rpx; margin-top: 22rpx; padding-top: 22rpx; border-top: 1rpx solid var(--line); }
+.budget-left-item { flex: 1; }
+.bl-label { font-size: 23rpx; color: var(--muted); display: block; margin-bottom: 6rpx; }
+.bl-value { font-size: 32rpx; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.bl-value.is-over { color: var(--exp); }
+.budget-hint { font-size: 22rpx; color: var(--faint); display: block; margin-top: 12rpx; }
 
 /* ====== 钱花在哪（单色系） ====== */
 .block-title { font-size: 25rpx; color: var(--sub); display: block; margin-bottom: 20rpx; }

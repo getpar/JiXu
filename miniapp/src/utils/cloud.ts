@@ -190,6 +190,22 @@ export function usingRealCloud(): boolean {
   return !!getEnvId() && typeof wx !== 'undefined' && !!wx.cloud
 }
 
+/** v0.9.2 供推送模块使用：初始化云环境并返回 database 实例（未配置 / 不支持时返回 null） */
+export function getCloudDatabase(): any {
+  const envId = getEnvId()
+  if (!envId) return null
+  if (typeof wx === 'undefined' || !wx.cloud) return null
+  try {
+    if (wxInitedEnv !== envId) {
+      wx.cloud.init({ env: envId, traceUser: true })
+      wxInitedEnv = envId
+    }
+    return wx.cloud.database()
+  } catch {
+    return null
+  }
+}
+
 /** 获取当前生效的云集合实现（真云优先，自动回退模拟云） */
 export function getCloudCollection(): CloudCollection {
   return createWxCloudCollection() || mockCloud

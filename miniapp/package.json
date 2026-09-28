@@ -6,6 +6,7 @@
   "scripts": {
     "dev:weapp": "taro build --type weapp --watch",
     "build:weapp": "taro build --type weapp",
+    "postbuild:weapp": "node scripts/copy-cloudfunctions.js",
     "verify:sync": "tsc src/utils/cloudCore.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/verify-sync.js"
   },
   "dependencies": {

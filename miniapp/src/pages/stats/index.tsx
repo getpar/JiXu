@@ -1,5 +1,5 @@
 import { View, Text } from '@tarojs/components'
-import { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getDailyTrend, getRecords } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
@@ -46,6 +46,8 @@ export default function Stats(): JSX.Element {
   const dark = useThemeDark()
   const [month] = useState(getMonth())
   const [type, setType] = useState<'expense' | 'income'>('expense')
+  // v0.9.1 一级/二级分类统计切换
+  const [level, setLevel] = useState<'cat' | 'sub'>('cat')
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<any[]>([])
   const [trend, setTrend] = useState<any[]>([])
@@ -55,13 +57,19 @@ export default function Stats(): JSX.Element {
   const [incTotal, setIncTotal] = useState(0)
   const [, setTick] = useState(0)
 
-  useEffect(() => { loadData() }, [month, type])
+  useEffect(() => { loadData() }, [month, type, level])
   useDidShow(() => { setTick((t) => t + 1); loadData() })
+
+  /** v0.9.1 点分类下钻：把分类筛选交给账单页（tab 页不支持 query，用本地存储中转） */
+  function drilldown(key: string, name: string): void {
+    Taro.setStorageSync('history_filter', JSON.stringify({ month, key, name }))
+    Taro.switchTab({ url: '/pages/history/index' })
+  }
 
   async function loadData(): Promise<void> {
     const keys = lastMonths(6)
     const [t, s, d, ms, recs, inc] = await Promise.all([
-      getMonthTotal(month, type), getMonthStats(month, type), getDailyTrend(month, type),
+      getMonthTotal(month, type), getMonthStats(month, type, level), getDailyTrend(month, type),
       Promise.all(keys.map((k) => getMonthTotal(k, type))),
       getRecords(), getMonthTotal(month, 'income'),
     ])
@@ -93,6 +101,12 @@ export default function Stats(): JSX.Element {
       <View className='type-switch'>
         <View className={`type-btn ${type === 'expense' ? 'active expense' : ''}`} onClick={() => setType('expense')}><Text>支出</Text></View>
         <View className={`type-btn ${type === 'income' ? 'active income' : ''}`} onClick={() => setType('income')}><Text>收入</Text></View>
+      </View>
+
+      {/* ---- v0.9.1 一级/二级分类切换 ---- */}
+      <View className='level-switch'>
+        <View className={`level-btn${level === 'cat' ? ' active' : ''}`} onClick={() => setLevel('cat')}><Text>一级分类</Text></View>
+        <View className={`level-btn${level === 'sub' ? ' active' : ''}`} onClick={() => setLevel('sub')}><Text>二级分类</Text></View>
       </View>
 
       {/* ---- 合计主卡 ---- */}
@@ -165,7 +179,7 @@ export default function Stats(): JSX.Element {
                 {stats.map((s, i) => {
                   const pct = total > 0 ? (s.total / total) * 100 : 0
                   return (
-                    <View key={s.categoryKey} className='legend-row'>
+                    <View key={s.categoryKey} className='legend-row' onClick={() => drilldown(s.categoryKey, s.categoryName)}>
                       <View className='legend-dot' style={{ background: colorAt(i) }} />
                       <Text className='legend-name'>{s.categoryName}</Text>
                       <Text className='legend-pct'>{pct.toFixed(0)}%</Text>
@@ -183,10 +197,10 @@ export default function Stats(): JSX.Element {
               {stats.map((s, i) => {
                 const h = Math.max((s.total / maxAmount) * 100, 4)
                 return (
-                  <View key={s.categoryKey} className='bar-col'>
+                  <View key={s.categoryKey} className='bar-col' onClick={() => drilldown(s.categoryKey, s.categoryName)}>
                     <Text className='bar-val'>¥{formatAmount(s.total)}</Text>
                     <View className='bar-bar' style={{ height: `${h}%`, background: colorAt(i) }} />
-                    <Text className='bar-label'>{s.categoryName.slice(0, 3)}</Text>
+                    <Text className='bar-label'>{s.categoryName.slice(0, 4)}</Text>
                   </View>
                 )
               })}
@@ -195,11 +209,11 @@ export default function Stats(): JSX.Element {
 
           {/* ====== 横向进度条：分类占比 ====== */}
           <View className='card'>
-            <Text className='section-title'>分类占比</Text>
+            <Text className='section-title'>分类占比 · 点条目看明细</Text>
             {stats.map((s, i) => {
               const pct = total > 0 ? (s.total / total) * 100 : 0
               return (
-                <View key={s.categoryKey} className={`pct-row${i === stats.length - 1 ? ' last' : ''}`}>
+                <View key={s.categoryKey} className={`pct-row${i === stats.length - 1 ? ' last' : ''}`} onClick={() => drilldown(s.categoryKey, s.categoryName)}>
                   <View className='pct-header'>
                     <View className='pct-left'>
                       <View className='pct-dot' style={{ background: colorAt(i) }} />

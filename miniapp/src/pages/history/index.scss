@@ -81,3 +81,11 @@
 
 /* 拍照凭证角标 */
 .photo-tag { background: var(--accent-soft) !important; color: var(--accent) !important; }
+
+/* v0.9.1 分类下钻筛选条 */
+.cat-filter {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--accent-soft); border-radius: 16rpx; padding: 16rpx 22rpx; margin-bottom: 16rpx;
+}
+.cat-filter-text { font-size: 25rpx; color: var(--accent); }
+.cat-filter-x { font-size: 24rpx; color: var(--accent); padding: 0 8rpx; }

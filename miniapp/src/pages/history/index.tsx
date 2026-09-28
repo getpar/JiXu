@@ -17,6 +17,8 @@ export default function History(): JSX.Element {
   const [keyword, setKeyword] = useState('')
   const [month, setMonth] = useState('')
   const [type, setType] = useState('')
+  // v0.9.1 统计页下钻带来的分类筛选（可一键移除）
+  const [catFilter, setCatFilter] = useState<{ key: string; name: string } | null>(null)
 
   // v0.6.8 回收站折叠区：已删除记录（本地留底，可恢复）
   const [deletedList, setDeletedList] = useState<any[]>([])
@@ -34,6 +36,18 @@ export default function History(): JSX.Element {
   const [editPerson, setEditPerson] = useState('')  // v0.8.0 记录人
 
   useDidShow(() => {
+    // v0.9.1 接收统计页下钻：读取中转的分类筛选并立即应用
+    const raw = Taro.getStorageSync('history_filter')
+    if (raw) {
+      Taro.removeStorageSync('history_filter')
+      try {
+        const f = JSON.parse(raw)
+        setMonth(f.month || '')
+        setType('')
+        setKeyword('')
+        setCatFilter(f.key ? { key: f.key, name: f.name || f.key } : null)
+      } catch { /* 忽略异常中转数据 */ }
+    }
     getRecords().then(setRecords)
     setDeletedList(getDeletedRecords())
     // 进入账单页时与云端同步一次，拉到新记录就重新列表
@@ -108,6 +122,8 @@ export default function History(): JSX.Element {
   let filtered = records
   if (month) filtered = filtered.filter((r) => r.date.startsWith(month))
   if (type) filtered = filtered.filter((r) => r.type === type)
+  // v0.9.1 分类下钻筛选：命中一级或二级分类均可
+  if (catFilter) filtered = filtered.filter((r) => r.categoryKey === catFilter.key || r.subcategoryKey === catFilter.key)
   if (keyword) filtered = filtered.filter((r) => r.note.includes(keyword) || r.categoryName.includes(keyword) || r.subcategoryName.includes(keyword) || (r.person || '').includes(keyword))
   filtered = sortRecordsByTimeDesc([...filtered]) // v0.8.7 日期倒序 + 同日按提交时间倒序
 
@@ -170,6 +186,14 @@ export default function History(): JSX.Element {
         <input className='search-input' placeholder='搜索备注或分类...' value={keyword} onInput={(e: any) => setKeyword(e.detail.value)} />
         {keyword && <Text className='search-clear' onClick={() => setKeyword('')}>✕</Text>}
       </View>
+
+      {/* v0.9.1 分类下钻筛选条（点 ✕ 移除） */}
+      {catFilter && (
+        <View className='cat-filter' onClick={() => setCatFilter(null)}>
+          <Text className='cat-filter-text'>分类：{catFilter.name}</Text>
+          <Text className='cat-filter-x'>✕</Text>
+        </View>
+      )}
 
       <View className='summary'>
         <Text className='summary-item red'>支出 ¥{expenseSum.toFixed(2)}</Text>

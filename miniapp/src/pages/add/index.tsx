@@ -1,13 +1,25 @@
 import { View, Text, Input, Picker, Image } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { useState, useEffect } from 'react'
-import { getMergedCategories, addRecord, getRecords } from '../../utils/storage'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { getMergedCategories, addRecord, getRecords, deleteRecord } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
 function today(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** v0.9.1 撤销回填用的提交快照 */
+interface SubmitSnapshot {
+  type: 'expense' | 'income'
+  amount: number
+  categoryKey: string
+  subcategoryKey: string
+  note: string
+  person: string
+  photo: string
+  date: string
 }
 
 export default function Add(): JSX.Element {
@@ -24,9 +36,17 @@ export default function Add(): JSX.Element {
   // v0.8.1 拍照凭证：拍小票/选相册，持久存到本机用户目录（不上云，换手机不带走）
   const [photo, setPhoto] = useState('')
   const [cats, setCats] = useState<any[]>([])
+  // v0.9.1 常用分类置顶：按使用频次排序，常用的一级/二级分类排前面
+  const [catCount, setCatCount] = useState<Record<string, number>>({})
+  const [subCount, setSubCount] = useState<Record<string, number>>({})
+  // v0.9.1 记账后撤销：保存后 5 秒内可一键撤销
+  const [undo, setUndo] = useState<{ id: string; label: string } | null>(null)
+  const [undoSecs, setUndoSecs] = useState(5)
+  const lastSnapshot = useRef<SubmitSnapshot | null>(null)
 
   useEffect(() => { getMergedCategories().then(setCats) }, [])
   useEffect(() => { loadFreqPersons() }, [])
+  useEffect(() => { loadFreq() }, [type])
 
   async function loadFreqPersons(): Promise<void> {
     const rs = await getRecords()
@@ -34,6 +54,32 @@ export default function Add(): JSX.Element {
     rs.forEach((r) => { if (r.person) cnt[r.person] = (cnt[r.person] || 0) + 1 })
     setFreqPersons(Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).slice(0, 6))
   }
+
+  /** v0.9.1 统计当前类型下各一级/二级分类的使用次数（用于置顶排序） */
+  async function loadFreq(): Promise<void> {
+    const rs = await getRecords()
+    const cc: Record<string, number> = {}
+    const sc: Record<string, number> = {}
+    rs.forEach((r) => {
+      if (r.type !== type) return
+      cc[r.categoryKey] = (cc[r.categoryKey] || 0) + 1
+      sc[r.subcategoryKey] = (sc[r.subcategoryKey] || 0) + 1
+    })
+    setCatCount(cc); setSubCount(sc)
+  }
+
+  // v0.9.1 撤销条倒计时：5 秒后自动收起（用截止时间，避免后台切换导致计时漂移）
+  useEffect(() => {
+    if (!undo) return
+    const deadline = Date.now() + 5000
+    setUndoSecs(5)
+    const t = setInterval(() => {
+      const left = Math.ceil((deadline - Date.now()) / 1000)
+      if (left <= 0) { clearInterval(t); setUndo(null) }
+      else setUndoSecs(left)
+    }, 250)
+    return () => clearInterval(t)
+  }, [undo?.id])
 
   /** v0.8.1 选照片后复制到用户目录持久保存（临时文件重启即失效，不能直接存路径） */
   function choosePhoto(): void {
@@ -56,13 +102,27 @@ export default function Add(): JSX.Element {
   const currentCat = cats.find((c: any) => c.key === catKey)
   const subs = currentCat?.subs || []
 
+  // v0.9.1 常用一级分类（最多 4 个，点击直接选中）
+  const freqCats = useMemo(() => {
+    return Object.keys(catCount)
+      .sort((a, b) => catCount[b] - catCount[a])
+      .slice(0, 4)
+      .map((k) => cats.find((c: any) => c.key === k))
+      .filter(Boolean)
+  }, [catCount, cats])
+
+  // v0.9.1 二级分类按使用频次置顶（次数相同保持原顺序）
+  const subsSorted = useMemo(() => {
+    return [...subs].sort((a: any, b: any) => (subCount[b.key] || 0) - (subCount[a.key] || 0))
+  }, [subs, subCount])
+
   async function submit(): Promise<void> {
     const amt = parseFloat(amount)
     if (!amt || amt <= 0) { Taro.showToast({ title: '请输入金额', icon: 'none' }); return }
     if (!catKey) { Taro.showToast({ title: '请选择分类', icon: 'none' }); return }
     if (!subKey) { Taro.showToast({ title: '请选择子分类', icon: 'none' }); return }
 
-    await addRecord({
+    const payload = {
       type,
       amount: amt,
       categoryKey: catKey,
@@ -73,12 +133,31 @@ export default function Add(): JSX.Element {
       person: person.trim(),
       photo,
       date,
-    })
+    }
+    const id = await addRecord(payload)
+    lastSnapshot.current = { type, amount: amt, categoryKey: catKey, subcategoryKey: subKey, note, person: person.trim(), photo, date }
 
-    Taro.showToast({ title: '记账成功！', icon: 'success' })
     setAmount(''); setCatKey(''); setSubKey(''); setNote(''); setPerson(''); setPhoto(''); setDate(today())
-    loadFreqPersons()
+    loadFreqPersons(); loadFreq()
     Taro.eventCenter.trigger('dataChanged')
+    // v0.9.1 不再弹"记账成功"toast，改弹可撤销条
+    setUndo({ id, label: `${type === 'income' ? '收入' : '支出'} ¥${amt.toFixed(2)}` })
+  }
+
+  /** v0.9.1 撤销刚记的这笔：删除记录并把表单回填成刚才的内容，方便改后重记 */
+  async function undoLast(): Promise<void> {
+    if (!undo) return
+    const id = undo.id
+    const snap = lastSnapshot.current
+    setUndo(null)
+    await deleteRecord(id)
+    Taro.eventCenter.trigger('dataChanged')
+    if (snap) {
+      setType(snap.type); setAmount(String(snap.amount)); setCatKey(snap.categoryKey)
+      setSubKey(snap.subcategoryKey); setNote(snap.note); setPerson(snap.person)
+      setPhoto(snap.photo); setDate(snap.date)
+    }
+    Taro.showToast({ title: '已撤销，可改后重记', icon: 'none' })
   }
 
   return (
@@ -112,6 +191,16 @@ export default function Add(): JSX.Element {
         <Picker mode='selector' range={cats} rangeKey='name' onChange={(e) => { setCatKey(cats[Number(e.detail.value)].key); setSubKey('') }}>
           <View className='picker'><Text className={catKey ? '' : 'placeholder'}>{currentCat?.name || '选择大类'}</Text><Text className='arrow'>›</Text></View>
         </Picker>
+        {/* v0.9.1 常用分类置顶：点一下直接选中 */}
+        {freqCats.length > 0 && (
+          <View className='cat-chips'>
+            {freqCats.map((c: any) => (
+              <View key={c.key} className={`cat-chip${catKey === c.key ? ' active' : ''}`} onClick={() => { setCatKey(c.key); setSubKey('') }}>
+                <Text>{c.name}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* 二级分类 */}
@@ -119,7 +208,7 @@ export default function Add(): JSX.Element {
         <View className='card'>
           <Text className='label'>二级分类</Text>
           <View className='sub-grid'>
-            {subs.map((s) => (
+            {subsSorted.map((s) => (
               <View key={s.key} className={`sub-item ${subKey === s.key ? 'sub-active' : ''}`} onClick={() => setSubKey(s.key)}>
                 <Text>{s.name}</Text>
               </View>
@@ -164,6 +253,14 @@ export default function Add(): JSX.Element {
 
       {/* 提交 */}
       <View className='submit-btn' onClick={submit}><Text>保存记录</Text></View>
+
+      {/* v0.9.1 撤销条：5 秒内可一键撤销刚记的这笔 */}
+      {undo && (
+        <View className='undo-bar'>
+          <Text className='undo-text'>已记 {undo.label}</Text>
+          <View className='undo-btn' onClick={undoLast}><Text className='undo-btn-text'>{undoSecs}s 撤销</Text></View>
+        </View>
+      )}
     </View>
   )
 }

@@ -123,12 +123,8 @@ async function initDatabase(): Promise<void> {
     )
   `)
 
-  const countResult = db.exec('SELECT COUNT(*) as cnt FROM categories')
-  const cnt = countResult[0]?.values[0]?.[0] || 0
-  if (cnt === 0) {
-    insertDefaultCategories()
-    saveDatabase()
-  }
+  // v0.9.1 默认分类：首次建库全量写入；已有库启动时补齐后来新增的默认分类（如「宠物」）
+  ensureDefaultCategories()
 
   // 周期性账单表
   db.run(`
@@ -200,9 +196,9 @@ function newEntityId(): string {
   return `d_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function insertDefaultCategories(): void {
-  if (!db) return
-  const categories = [
+/** 默认分类种子（v0.9.1 起「宠物」独立为一级大类）。
+ *  以后新增默认分类只往这里追加；已有用户的库由 ensureDefaultCategories 启动时自动补齐。 */
+const DEFAULT_CATEGORY_SEED = [
     { ck: 'food', cname: '餐饮饮食', sk: 'breakfast', sname: '早餐', sort: 1 },
     { ck: 'food', cname: '餐饮饮食', sk: 'lunch', sname: '午餐', sort: 2 },
     { ck: 'food', cname: '餐饮饮食', sk: 'dinner', sname: '晚餐', sort: 3 },
@@ -246,18 +242,34 @@ function insertDefaultCategories(): void {
     { ck: 'finance', cname: '金融保险', sk: 'invest', sname: '投资理财', sort: 81 },
     { ck: 'finance', cname: '金融保险', sk: 'loan', sname: '贷款还款', sort: 82 },
     { ck: 'finance', cname: '金融保险', sk: 'fee', sname: '手续费', sort: 83 },
+    { ck: 'pet', cname: '宠物', sk: 'pet_food', sname: '宠物食品', sort: 84 },
+    { ck: 'pet', cname: '宠物', sk: 'pet_medical', sname: '宠物医疗', sort: 85 },
+    { ck: 'pet', cname: '宠物', sk: 'pet_supply', sname: '宠物用品', sort: 86 },
+    { ck: 'pet', cname: '宠物', sk: 'pet_beauty', sname: '美容洗护', sort: 87 },
+    { ck: 'pet', cname: '宠物', sk: 'pet_boarding', sname: '寄养服务', sort: 88 },
+    { ck: 'pet', cname: '宠物', sk: 'pet_other', sname: '其他宠物', sort: 89 },
     { ck: 'other', cname: '其他杂项', sk: 'express', sname: '快递邮寄', sort: 90 },
-    { ck: 'other', cname: '其他杂项', sk: 'pet', sname: '宠物开销', sort: 91 },
     { ck: 'other', cname: '其他杂项', sk: 'misc', sname: '其他', sort: 92 },
-  ]
+]
 
+/** 首次建库写入全部默认分类；已有库启动时补齐后来新增的默认分类（幂等：按 category_key+subcategory_key 判重）。
+ *  注意：只新增、不删除 —— 老库里的 (other, pet) 等历史行要保留，否则旧账单 LEFT JOIN 取不到分类名。 */
+function ensureDefaultCategories(): void {
+  if (!db) return
+  const existing = new Set<string>()
+  const res = db.exec('SELECT category_key, subcategory_key FROM categories')
+  if (res[0]) for (const row of res[0].values) existing.add(`${row[0]}|${row[1]}`)
   const stmt = db.prepare(
-    'INSERT INTO categories (category_key, subcategory_key, category_name, subcategory_name, sort_order, is_default) VALUES (?, ?, ?, ?, ?, 1)'
+    'INSERT OR IGNORE INTO categories (category_key, subcategory_key, category_name, subcategory_name, sort_order, is_default) VALUES (?, ?, ?, ?, ?, 1)'
   )
-  for (const c of categories) {
+  let added = 0
+  for (const c of DEFAULT_CATEGORY_SEED) {
+    if (existing.has(`${c.ck}|${c.sk}`)) continue
     stmt.run([c.ck, c.sk, c.cname, c.sname, c.sort])
+    added++
   }
   stmt.free()
+  if (added > 0) saveDatabase()
 }
 
 // 兼容：确保旧 expenses 表的 API 仍可工作（字段名映射）

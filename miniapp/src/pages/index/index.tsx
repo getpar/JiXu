@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, localDateStr } from '../../utils/storage'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud, getEnvId, getDefaultEnvId, setCustomEnvId } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
+import { reportPushState } from '../../utils/push'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
 import type { ThemePref } from '../../utils/theme'
 import './index.scss'
@@ -106,6 +107,9 @@ export default function Index(): JSX.Element {
         Taro.removeTabBarBadge({ index: 0 }).catch(() => { /* 非 tabBar 环境忽略 */ })
       }
     }).catch(() => { /* ignore */ })
+    // v0.9.2 每次回首页顺手把「最近到期项 + 剩余额度」刷新到云端（不加额度）：
+    // 云函数每天推送时读的就是这份数据，保证推送内容跟用户当前待办一致
+    reportPushState(0).catch(() => { /* 未配置云环境时静默忽略 */ })
   })
   useEffect(() => { refresh() }, [month])
   Taro.eventCenter.on('dataChanged', refresh)
@@ -189,6 +193,13 @@ export default function Index(): JSX.Element {
   const over = budget > 0 && exp > budget
   const budgetState = over ? 'is-over' : pct >= 80 ? 'is-warn' : 'is-ok'
 
+  // v0.9.1 预算剩余 / 日均可花：剩余预算 ÷ 本月剩余天数（含今天）
+  const _now = new Date()
+  const _daysInMonth = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate()
+  const remainDays = Math.max(_daysInMonth - _now.getDate() + 1, 1)
+  const budgetLeft = budget - exp
+  const dailyLeft = budgetLeft > 0 ? budgetLeft / remainDays : 0
+
   // 快捷操作（去 emoji，纯文字网格）
   const actions = [
     { label: '记账', onClick: () => Taro.switchTab({ url: '/pages/add/index' }) },
@@ -248,6 +259,22 @@ export default function Index(): JSX.Element {
             <Text className='budget-foot-text'>已用 ¥{formatAmount(exp)}</Text>
             <Text className='budget-foot-text'>预算 ¥{formatAmount(budget)}</Text>
           </View>
+          {/* v0.9.1 剩余可花 / 日均可花 */}
+          <View className='budget-left'>
+            <View className='budget-left-item'>
+              <Text className='bl-label'>{budgetLeft < 0 ? '已超支' : '剩余可花'}</Text>
+              <Text className={`bl-value${budgetLeft < 0 ? ' is-over' : ''}`}>
+                {budgetLeft < 0 ? '-' : ''}¥{formatAmount(Math.abs(budgetLeft))}
+              </Text>
+            </View>
+            <View className='budget-left-item'>
+              <Text className='bl-label'>日均可花</Text>
+              <Text className='bl-value'>¥{formatAmount(dailyLeft)}</Text>
+            </View>
+          </View>
+          <Text className='budget-hint'>
+            {budgetLeft >= 0 ? `按本月剩余 ${remainDays} 天算，每天约可花 ¥${formatAmount(dailyLeft)}` : `已超出预算，建议收紧本月开支`}
+          </Text>
         </View>
       )}
 

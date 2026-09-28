@@ -1,0 +1,9 @@
+{
+  "name": "dailyReminder",
+  "version": "1.0.0",
+  "description": "每日到期提醒（订阅消息）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
