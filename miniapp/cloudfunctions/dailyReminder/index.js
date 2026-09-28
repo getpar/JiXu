@@ -31,9 +31,9 @@ const TARGET_PAGE = 'pages/todos/index'
 // 用户点消息后「跳转到哪个版本的小程序」：
 //   'developer' 开发版（开发者工具/预览） / 'trial' 体验版 / 'formal' 正式版
 // ⚠️ 必须与「你正在使用的版本」一致，否则用户点消息跳不过去（提示小程序未发布）。
-//    当前状态：小程序还是**体验版** → 用 'trial'
-//    👉 等小程序正式发布后，把这里改回 'formal' 并重新上传云函数。
-const MINIPROGRAM_STATE = 'trial'
+//    当前状态：小程序**已发布正式版**（v0.9.3，2026-09-28 上线）→ 用 'formal'
+//    对照：开发版 developer / 体验版 trial / 正式版 formal
+const MINIPROGRAM_STATE = 'formal'
 
 // 单次运行最多处理多少条
 const MAX_PER_RUN = 200
