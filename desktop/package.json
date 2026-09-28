@@ -1,12 +1,12 @@
 {
   "name": "daily-notes",
   "version": "0.8.8",
-  "description": "每日小记 — 个人记账桌面应用",
+  "description": "计序 — 个人记账桌面应用",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && electron-builder",
-    "postbuild": "node -e \"const{execSync}=require('child_process');try{execSync('node_modules/rcedit/bin/rcedit-x64.exe release/win-unpacked/每日小记.exe --set-icon build/icon.ico',{stdio:'pipe'})}catch(e){}\"",
+    "postbuild": "node -e \"const{execSync}=require('child_process');try{execSync('node_modules/rcedit/bin/rcedit-x64.exe release/win-unpacked/计序.exe --set-icon build/icon.ico',{stdio:'pipe'})}catch(e){}\"",
     "preview": "electron-vite preview"
   },
   "dependencies": {

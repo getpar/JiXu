@@ -68,7 +68,7 @@ function cleanLocal() {
   try {
     fs.renameSync(dbPath, backup) // 文件被应用锁着会失败 = 应用没关
   } catch (e) {
-    console.error('❌ 备份/移除失败（通常是桌面端还没关闭，文件被占用）。请完全退出「每日小记」后重试。')
+    console.error('❌ 备份/移除失败（通常是桌面端还没关闭，文件被占用）。请完全退出「计序」后重试。')
     console.error('   原始错误:', e.message)
     process.exit(1)
   }

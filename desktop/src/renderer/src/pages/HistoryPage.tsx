@@ -116,7 +116,7 @@ function HistoryPage(): JSX.Element {
     ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 30 }]
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '账单')
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
-    const result = await window.electronAPI.saveFile(`每日小记_${selectedMonth.format('YYYY-MM')}.xlsx`, Array.from(new Uint8Array(buf)))
+    const result = await window.electronAPI.saveFile(`计序_${selectedMonth.format('YYYY-MM')}.xlsx`, Array.from(new Uint8Array(buf)))
     if (result.success) message.success(`已导出到：${result.path}`)
   }
 
@@ -134,7 +134,7 @@ function HistoryPage(): JSX.Element {
     const csv = BOM + headers.join(',') + '\n' + rows.map((r: string[]) => r.join(',')).join('\n')
     const buf = new TextEncoder().encode(csv)
     const result = await window.electronAPI.saveFile(
-      `每日小记_${selectedMonth.format('YYYY-MM')}.csv`,
+      `计序_${selectedMonth.format('YYYY-MM')}.csv`,
       Array.from(buf),
     )
     if (result.success) message.success(`CSV 已导出到：${result.path}`)

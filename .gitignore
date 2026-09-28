@@ -4,7 +4,12 @@ node_modules/
 # ===== 构建产物（编译后生成的，不需要上传） =====
 dist/
 release/
+release_new/
 out/
+
+# ===== 本地临时/遗留目录 =====
+.installers/
+.staging-survivor/
 
 # ===== 环境配置文件（可能含敏感信息） =====
 .env

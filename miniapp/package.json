@@ -2,7 +2,7 @@
   "name": "daily-notes-miniapp",
   "version": "0.1.0",
   "private": true,
-  "description": "每日小记 — 微信小程序版",
+  "description": "计序 — 微信小程序版",
   "scripts": {
     "dev:weapp": "taro build --type weapp --watch",
     "build:weapp": "taro build --type weapp",

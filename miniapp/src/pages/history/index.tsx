@@ -142,7 +142,7 @@ export default function History(): JSX.Element {
     XLSX.utils.book_append_sheet(wb, ws, '账单')
     const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
     const fs = Taro.getFileSystemManager()
-    const path = `${Taro.env.USER_DATA_PATH}/每日小记_${localDateStr()}.xlsx`
+    const path = `${Taro.env.USER_DATA_PATH}/计序_${localDateStr()}.xlsx`
     fs.writeFile({
       filePath: path, data: new Uint8Array(wbout).buffer as any,
       success: () => {
@@ -152,7 +152,7 @@ export default function History(): JSX.Element {
           success: (res) => {
             if (res.tapIndex === 0) {
               Taro.shareFileMessage({
-                filePath: path, fileName: `每日小记_${localDateStr()}.xlsx`,
+                filePath: path, fileName: `计序_${localDateStr()}.xlsx`,
                 fail: (e) => {
                   // 用户主动取消不报错；老基础库不支持时提示升级微信
                   if (e?.errMsg && e.errMsg.indexOf('cancel') >= 0) return

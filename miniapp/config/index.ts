@@ -1,5 +1,5 @@
 const config = {
-  projectName: '每日小记',
+  projectName: '计序',
   date: '2026-7-8',
   designWidth: 750,
   deviceRatio: {

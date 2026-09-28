@@ -1,5 +1,5 @@
 appId: com.dailynotes.app
-productName: 每日小记
+productName: 计序
 directories:
   output: release
   buildResources: build

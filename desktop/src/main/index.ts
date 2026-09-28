@@ -35,6 +35,10 @@ function notifyAutoBills(list: AutoBillInfo[]): void {
 
 // ========== 数据库初始化 ==========
 
+// 固定数据目录为 daily-notes：应用改名（productName 由「每日小记」改为「计序」）后，
+// 若不固定，打包版会去新的目录找数据，用户的旧账本会"凭空消失"。这里锁死老目录，保证数据不丢。
+app.setPath('userData', path.join(app.getPath('appData'), 'daily-notes'))
+
 async function initDatabase(): Promise<void> {
   DB_PATH = path.join(app.getPath('userData'), 'daily-notes.db')
   SQL = await initSqlJs()
@@ -696,7 +700,7 @@ function setupIPC(): void {
   ipcMain.handle('backup:create', async () => {
     if (!mainWindow) return { success: false }
     const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: `每日小记_备份_${localDateStr()}.db`,
+      defaultPath: `计序_备份_${localDateStr()}.db`,
       filters: [{ name: '数据库文件', extensions: ['db'] }],
     })
     if (!result.canceled && result.filePath) {
@@ -1060,7 +1064,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', sans-s
 .btn-cancel { background:#fff; color:#666; border:1px solid #d9d9d9; }
 .btn-cancel:hover { background:#fafafa; }
 </style></head><body>
-<div class="header"><span class="icon">📒</span><span class="title">每日小记</span></div>
+<div class="header"><span class="icon">📒</span><span class="title">计序</span></div>
 <div class="body">关闭窗口后应用会在后台继续运行，<br/>快捷键 <b>Ctrl+Shift+N</b> 仍然可以记账。</div>
 <div class="footer">
 <button class="btn btn-cancel" onclick="choose('cancel')">取消</button>
@@ -1084,7 +1088,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', sans-s
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200, height: 800, minWidth: 900, minHeight: 600,
-    title: '每日小记',
+    title: '计序',
     icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -1151,12 +1155,12 @@ function createTray(): void {
     ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
     : nativeImage.createEmpty()
   tray = new Tray(trayIcon)
-  tray.setToolTip('每日小记 — 双击打开主窗口')
+  tray.setToolTip('计序 — 双击打开主窗口')
 
   const contextMenu = Menu.buildFromTemplate([
     { label: '显示主窗口', click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus() } } },
     { type: 'separator' },
-    { label: '退出每日小记', click: () => { app.exit(0) } },
+    { label: '退出计序', click: () => { app.exit(0) } },
   ])
   tray.setContextMenu(contextMenu)
 

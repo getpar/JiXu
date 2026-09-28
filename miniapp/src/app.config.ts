@@ -11,7 +11,7 @@ export default defineAppConfig({
   window: {
     backgroundTextStyle: 'dark',
     navigationBarBackgroundColor: '#FFFFFF',
-    navigationBarTitleText: '每日小记',
+    navigationBarTitleText: '计序',
     navigationBarTextStyle: 'black',
   },
   tabBar: {

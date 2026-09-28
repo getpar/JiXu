@@ -214,7 +214,7 @@ export default function Index(): JSX.Element {
     <View className={`wrap${dark ? ' theme-dark' : ''}`}>
       {/* ====== 顶栏 ====== */}
       <View className='topbar'>
-        <Text className='brand'>每日小记</Text>
+        <Text className='brand'>计序</Text>
         <Picker mode='selector' range={monthOptions} onChange={(e) => setMonth(monthOptions[Number(e.detail.value)])}>
           <View className='month'>
             <Text>{month}</Text>

@@ -403,10 +403,10 @@ function AppLayout(): JSX.Element {
             ) : (
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#FF6B35', letterSpacing: 1 }}>
-                  每日小记
+                  计序
                 </div>
                 <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2, letterSpacing: 2 }}>
-                  DAILY NOTES
+                  JI XU
                 </div>
               </div>
             )}
