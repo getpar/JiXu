@@ -24,6 +24,9 @@
  * - 多用户隔离：每条云端文档带 ownerId（同步码），同码才是同一户（方案 B）
  */
 
+// v0.9.5 只依赖 money.ts（同样是纯 TS、零 Taro 依赖），用于凭证摘要里的金额格式化
+import { formatMoneyExact } from './money'
+
 // ---- 数据结构 ----
 
 /** 云数据库 records 集合中的一条记录（字段格式与桌面端上传的保持一致） */
@@ -254,7 +257,8 @@ export function localToCloud(r: SyncableRecord, source: string, now: number, own
 export function docLabel(r: SyncableRecord): string {
   const cat = r.categoryName || r.categoryKey || ''
   const sub = r.subcategoryName || r.subcategoryKey || ''
-  return `${r.date} ${cat}/${sub} ¥${r.amount}${r.note ? ' 备注:' + r.note : ''}`
+  // v0.9.5 金额走统一格式化：避免脏数据在云控制台里显示成 1.1122222222222222e+125
+  return `${r.date} ${cat}/${sub} ¥${formatMoneyExact(r.amount)}${r.note ? ' 备注:' + r.note : ''}`
 }
 
 // ---- 本地模拟云（开发验证用） ----

@@ -7,6 +7,7 @@ import {
 } from '../../utils/storage'
 import type { RecurringBill } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
+import { formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
 import './index.scss'
 
 const cycleLabels: Record<string, string> = { daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' }
@@ -41,8 +42,10 @@ export default function Recurring(): JSX.Element {
   const subs = currentCat?.subs || []
 
   async function handleAdd(): Promise<void> {
-    const amount = Number(formAmount)
-    if (!amount || amount <= 0) { Taro.showToast({ title: '请输入金额', icon: 'none' }); return }
+    // v0.9.5 改用统一的严格解析：挡掉 1e5 / 12.3.4 / 超上限等畸形金额
+    const parsed = parseAmountInput(formAmount)
+    if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
+    const amount = parsed.value
     if (!formSubKey) { Taro.showToast({ title: '请选择分类', icon: 'none' }); return }
 
     const cat = categories.find((c) => c.key === formCatKey)
@@ -74,7 +77,7 @@ export default function Recurring(): JSX.Element {
 
   async function handleExecute(bill: RecurringBill): Promise<void> {
     await executeRecurringBill(bill.id)
-    Taro.showToast({ title: `已记录 ¥${bill.amount.toFixed(2)}`, icon: 'success' })
+    Taro.showToast({ title: `已记录 ¥${formatMoneyExact(bill.amount)}`, icon: 'success' })
     loadData()
     // 通知首页刷新
     Taro.eventCenter.trigger('dataChanged')
@@ -137,7 +140,7 @@ export default function Recurring(): JSX.Element {
                 <Text className='bill-cat'>{b.categoryName} · {b.subcategoryName}</Text>
               </View>
               <Text className={`bill-amount ${b.type === 'income' ? 'green' : 'red'}`}>
-                {b.type === 'income' ? '+' : '-'}¥{b.amount.toFixed(2)}
+                {b.type === 'income' ? '+' : '-'}¥{formatMoneyExact(b.amount)}
               </Text>
             </View>
 
@@ -186,7 +189,7 @@ export default function Recurring(): JSX.Element {
               <Text className='form-label'>金额</Text>
               <View className='amount-input'>
                 <Text className='prefix'>¥</Text>
-                <Input type='digit' placeholder='输入金额' value={formAmount} onInput={(e) => setFormAmount(e.detail.value)} />
+                <Input type='digit' maxlength={AMOUNT_INPUT_MAX_LENGTH} placeholder='输入金额' value={formAmount} onInput={(e) => setFormAmount(sanitizeAmountInput(e.detail.value))} />
               </View>
             </View>
 

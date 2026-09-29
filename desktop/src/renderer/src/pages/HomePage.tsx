@@ -1,3 +1,4 @@
+import { formatMoney, formatMoneyExact } from '../utils/money'
 import { useState, useEffect } from 'react'
 import { Card, Row, Col, Typography, List, Tag, Progress, InputNumber, Button, Modal, Alert } from 'antd'
 import { WalletOutlined, EditOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
@@ -126,8 +127,8 @@ function HomePage(): JSX.Element {
         <Alert
           message={
             <span>
-              本月已超支 <strong>¥{(expenseTotal - budget).toFixed(2)}</strong>
-              <span style={{ marginLeft: 12, opacity: 0.7 }}>预算 ¥{budget.toFixed(0)} · 已用 ¥{expenseTotal.toFixed(2)}</span>
+              本月已超支 <strong>¥{formatMoney(expenseTotal - budget)}</strong>
+              <span style={{ marginLeft: 12, opacity: 0.7 }}>预算 ¥{formatMoney(budget, 0)} · 已用 ¥{formatMoney(expenseTotal)}</span>
             </span>
           }
           type="error"
@@ -140,7 +141,7 @@ function HomePage(): JSX.Element {
           message={
             <span>
               已用预算的 <strong>{budgetPercent}%</strong>
-              <span style={{ marginLeft: 12, opacity: 0.7 }}>剩余 ¥{(budget - expenseTotal).toFixed(2)} · 预算 ¥{budget.toFixed(0)}</span>
+              <span style={{ marginLeft: 12, opacity: 0.7 }}>剩余 ¥{formatMoney(budget - expenseTotal)} · 预算 ¥{formatMoney(budget, 0)}</span>
             </span>
           }
           type="warning"
@@ -167,7 +168,7 @@ function HomePage(): JSX.Element {
                 {card.title}
               </div>
               <div style={{ fontSize: 30, fontWeight: 800, color: card.color, fontVariantNumeric: 'tabular-nums' }}>
-                {card.prefix}{card.value.toFixed(2)}
+                {card.prefix}{formatMoney(card.value)}
               </div>
             </div>
           </Col>
@@ -193,7 +194,7 @@ function HomePage(): JSX.Element {
           </Text>
           {budget && (
             <Text type="secondary" style={{ fontSize: 13 }}>
-              💰 日均约 <strong style={{ color: '#1E293B' }}>¥{(expenseTotal / Math.max(dayjs().date(), 1)).toFixed(0)}</strong>
+              💰 日均约 <strong style={{ color: '#1E293B' }}>¥{formatMoney(expenseTotal / Math.max(dayjs().date(), 1), 0)}</strong>
             </Text>
           )}
         </div>
@@ -231,10 +232,10 @@ function HomePage(): JSX.Element {
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Text type="secondary" style={{ fontSize: 13 }}>
-                    已用 ¥{expenseTotal.toFixed(2)}
+                    已用 ¥{formatMoney(expenseTotal)}
                   </Text>
                   <Text type="secondary" style={{ fontSize: 13 }}>
-                    预算 ¥{budget.toFixed(0)} · 剩余 ¥{Math.max(budget - expenseTotal, 0).toFixed(2)}
+                    预算 ¥{formatMoney(budget, 0)} · 剩余 ¥{formatMoney(Math.max(budget - expenseTotal, 0))}
                   </Text>
                 </div>
               </>
@@ -317,7 +318,7 @@ function HomePage(): JSX.Element {
                   color: item.type === 'income' ? '#10B981' : '#EF4444',
                   fontVariantNumeric: 'tabular-nums',
                 }}>
-                  {item.type === 'income' ? '+' : '-'}¥{item.amount.toFixed(2)}
+                  {item.type === 'income' ? '+' : '-'}¥{formatMoneyExact(item.amount)}
                 </span>
               </List.Item>
             )}

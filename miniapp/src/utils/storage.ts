@@ -1,6 +1,7 @@
 import Taro from '@tarojs/taro'
 import { getCloudCollection, getOwnerId, taroStore } from './cloud'
 import { runSync, recordKey, parseRecordKey, PendingPurge, SyncableRecord, SyncResult } from './cloudCore'
+import { sumAmounts } from './money'
 
 // ========== 类型 ==========
 
@@ -273,9 +274,11 @@ export async function updateRecord(id: string, data: Partial<RecordItem>): Promi
 
 export async function getMonthTotal(month: string, type?: string): Promise<number> {
   const records = await getRecords()
-  return records
-    .filter((r) => r.date.startsWith(month) && (!type || r.type === type))
-    .reduce((s, r) => s + r.amount, 0)
+  // v0.9.5 改走 sumAmounts（先转「分」取整再累加），消除 0.1+0.2 这类浮点累加误差；
+  // 顺带跳过 NaN / Infinity 脏值，避免一个坏值把整月合计污染成科学计数法
+  return sumAmounts(
+    records.filter((r) => r.date.startsWith(month) && (!type || r.type === type)).map((r) => r.amount),
+  )
 }
 
 /** v0.9.1 level='cat' 按一级分类汇总（默认）；level='sub' 按二级分类汇总 */
@@ -286,25 +289,32 @@ export async function getMonthStats(
 ): Promise<{ categoryKey: string; categoryName: string; total: number }[]> {
   const records = await getRecords()
   const map: Record<string, { categoryKey: string; categoryName: string; total: number }> = {}
+  // v0.9.5 累加在「分」上做，最后一次性除回「元」，避免逐笔浮点累加漂移
+  const cents: Record<string, number> = {}
   records
     .filter((r) => r.date.startsWith(month) && (!type || r.type === type))
     .forEach((r) => {
       const key = level === 'sub' ? r.subcategoryKey : r.categoryKey
       const name = level === 'sub' ? (r.subcategoryName || r.categoryName) : r.categoryName
       if (!key) return
-      if (!map[key]) map[key] = { categoryKey: key, categoryName: name, total: 0 }
-      map[key].total += r.amount
+      if (!map[key]) { map[key] = { categoryKey: key, categoryName: name, total: 0 }; cents[key] = 0 }
+      if (typeof r.amount === 'number' && Number.isFinite(r.amount)) cents[key] += Math.round(r.amount * 100)
     })
+  Object.keys(map).forEach((k) => { map[k].total = cents[k] / 100 })
   return Object.values(map).sort((a, b) => b.total - a.total)
 }
 
 export async function getDailyTrend(month: string, type?: string): Promise<{ date: string; total: number }[]> {
   const records = await getRecords()
-  const map: Record<string, number> = {}
+  // v0.9.5 同上：按天在「分」上累加
+  const cents: Record<string, number> = {}
   records
     .filter((r) => r.date.startsWith(month) && (!type || r.type === type))
-    .forEach((r) => { map[r.date] = (map[r.date] || 0) + r.amount })
-  return Object.entries(map).map(([date, total]) => ({ date, total })).sort((a, b) => a.date.localeCompare(b.date))
+    .forEach((r) => {
+      if (typeof r.amount !== 'number' || !Number.isFinite(r.amount)) return
+      cents[r.date] = (cents[r.date] || 0) + Math.round(r.amount * 100)
+    })
+  return Object.entries(cents).map(([date, c]) => ({ date, total: c / 100 })).sort((a, b) => a.date.localeCompare(b.date))
 }
 
 // ========== 分类数据 ==========

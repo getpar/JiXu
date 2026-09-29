@@ -1,3 +1,4 @@
+import { formatMoneyExact } from '../utils/money'
 import { useState, useEffect, useMemo } from 'react'
 import { Card, Table, Tag, Button, Modal, Form, InputNumber, Select, Input, DatePicker, TimePicker, Switch, Typography, Popconfirm, message, Space, Alert, Collapse } from 'antd'
 import { PlusOutlined, DeleteOutlined, CheckOutlined, ClockCircleOutlined } from '@ant-design/icons'
@@ -64,7 +65,7 @@ function TodosPage(): JSX.Element {
   async function handleComplete(todo: TodoItem): Promise<void> {
     const res = await window.electronAPI.completeTodo(todo.id)
     if (res.success) {
-      message.success(res.recorded ? `已完成，自动记账 ¥${res.recorded.amount.toFixed(2)}` : '已完成')
+      message.success(res.recorded ? `已完成，自动记账 ¥${formatMoneyExact(res.recorded.amount)}` : '已完成')
       loadData()
     } else {
       message.error(res.error || '操作失败')
@@ -128,7 +129,7 @@ function TodosPage(): JSX.Element {
       title: '关联金额', key: 'amount', width: 190,
       render: (_: any, r: TodoItem) => r.amount > 0 ? (
         <Space size={4}>
-          <Text style={{ fontWeight: 700, color: '#FF6B35' }}>¥{r.amount.toFixed(2)}</Text>
+          <Text style={{ fontWeight: 700, color: '#FF6B35' }}>¥{formatMoneyExact(r.amount)}</Text>
           {r.category_name && <Tag color="orange" style={{ borderRadius: 6 }}>{r.category_name}</Tag>}
           {r.subcategory_name && <Tag style={{ borderRadius: 6 }}>{r.subcategory_name}</Tag>}
         </Space>

@@ -7,6 +7,7 @@ import {
 import type { Todo } from '../../utils/storage'
 import { enablePushFromTap, pushResultText, getPushState, sendTestReminder, autoRequestPushOnAction, reportPushState } from '../../utils/push'
 import { useThemeDark } from '../../utils/theme'
+import { formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
 import './index.scss'
 
 const cycleLabels: Record<string, string> = { daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', once: '单次' }
@@ -97,7 +98,13 @@ export default function Todos(): JSX.Element {
 
   async function handleAdd(): Promise<void> {
     if (!fTitle.trim()) { Taro.showToast({ title: '请输入标题', icon: 'none' }); return }
-    const amount = Number(fAmount)
+    // v0.9.5 关联金额是选填的：留空 = 不记账；一旦填了就走严格校验，挡掉畸形金额与超上限
+    let amount = 0
+    if (fAmount.trim() !== '') {
+      const parsed = parseAmountInput(fAmount)
+      if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
+      amount = parsed.value
+    }
     await addTodo({
       title: fTitle.trim(), cycle: fCycle as any, nextDate: fNextDate,
       time: fTime || undefined, isActive: true,
@@ -118,7 +125,7 @@ export default function Todos(): JSX.Element {
     const pushTask = autoRequestPushOnAction()
     await completeTodo(todo.id)
     if (todo.amount && todo.amount > 0) {
-      Taro.showToast({ title: `已完成并记账 ¥${todo.amount.toFixed(0)}`, icon: 'success' })
+      Taro.showToast({ title: `已完成并记账 ¥${formatMoneyExact(todo.amount)}`, icon: 'success' })
     } else {
       Taro.showToast({ title: '已完成', icon: 'success' })
     }
@@ -207,7 +214,7 @@ export default function Todos(): JSX.Element {
             <Text className={`todo-title${done ? ' struck' : ''}`}>{t.title}</Text>
             {t.amount && t.amount > 0 && (
               <View className='todo-amount-row'>
-                <Text className='todo-amount'>¥{t.amount.toFixed(0)}</Text>
+                <Text className='todo-amount'>¥{formatMoneyExact(t.amount)}</Text>
                 {t.categoryName && <Text className='todo-cat'>· {t.categoryName} - {t.subcategoryName}</Text>}
               </View>
             )}
@@ -296,7 +303,7 @@ export default function Todos(): JSX.Element {
               <Text className='form-label'>关联金额（可选）</Text>
               <View className='amount-input'>
                 <Text className='prefix'>¥</Text>
-                <Input type='digit' placeholder='填了自动记账' value={fAmount} onInput={(e) => setFAmount(e.detail.value)} />
+                <Input type='digit' maxlength={AMOUNT_INPUT_MAX_LENGTH} placeholder='填了自动记账' value={fAmount} onInput={(e) => setFAmount(sanitizeAmountInput(e.detail.value))} />
               </View>
             </View>
 

@@ -1,3 +1,4 @@
+import { formatMoney } from '../utils/money'
 import { useState, useEffect } from 'react'
 import { Card, DatePicker, Typography, Row, Col, Statistic, Empty, Spin, Space, Segmented } from 'antd'
 import { PieChartOutlined, RiseOutlined } from '@ant-design/icons'
@@ -58,7 +59,7 @@ function StatsPage(): JSX.Element {
     radius: 0.85,
     innerRadius: 0.55,
     label: {
-      text: (d: any) => `${d.type}\n¥${Number(d.value).toFixed(0)}`,
+      text: (d: any) => `${d.type}\n¥${formatMoney(Number(d.value), 0)}`,
       position: 'outside' as const,
       style: { fontSize: 11, fill: '#64748B' },
     },
@@ -73,7 +74,7 @@ function StatsPage(): JSX.Element {
     yField: 'amount',
     colorField: 'category',
     label: {
-      text: (d: any) => `¥${Number(d.amount).toFixed(0)}`,
+      text: (d: any) => `¥${formatMoney(Number(d.amount), 0)}`,
       position: 'top' as const,
       style: { fontSize: 11, fill: '#64748B' },
     },
@@ -89,7 +90,7 @@ function StatsPage(): JSX.Element {
     yField: 'amount',
     point: { size: 4, shape: 'circle' as const, style: { fill: '#FF6B35', lineWidth: 2, stroke: '#fff' } },
     label: {
-      text: (d: any) => (Number(d.amount) > 0 ? `¥${Number(d.amount).toFixed(0)}` : ''),
+      text: (d: any) => (Number(d.amount) > 0 ? `¥${formatMoney(Number(d.amount), 0)}` : ''),
       style: { fontSize: 10, fill: '#64748B' },
     },
     smooth: true,
@@ -135,7 +136,7 @@ function StatsPage(): JSX.Element {
               color: recordType === 'income' ? '#10B981' : '#EF4444',
               fontVariantNumeric: 'tabular-nums',
             }}>
-              ¥{totalAmount.toFixed(2)}
+              ¥{formatMoney(totalAmount)}
             </Text>
           </div>
         </Space>
@@ -189,7 +190,7 @@ function StatsPage(): JSX.Element {
                 <Statistic
                   title="最高类别"
                   value={stats[0]?.category_name || '-'}
-                  suffix={stats[0] ? `¥${stats[0].total.toFixed(0)}` : ''}
+                  suffix={stats[0] ? `¥${formatMoney(stats[0].total, 0)}` : ''}
                   valueStyle={{ fontSize: 18, fontWeight: 700 }}
                 />
               </div>
@@ -242,14 +243,14 @@ function StatsPage(): JSX.Element {
               <Text>
                 {compareMonth.format('YYYY年M月')}：
                 <Text strong style={{ color: '#EF4444', fontSize: 15 }}>
-                  ¥{compareData?.month2?.total?.toFixed(2) || '0.00'}
+                  ¥{formatMoney(compareData?.month2?.total ?? 0)}
                 </Text>
               </Text>
               <Text type="secondary" style={{ fontSize: 18 }}>vs</Text>
               <Text>
                 {selectedMonth.format('YYYY年M月')}：
                 <Text strong style={{ color: '#EF4444', fontSize: 15 }}>
-                  ¥{compareData?.month1?.total?.toFixed(2) || '0.00'}
+                  ¥{formatMoney(compareData?.month1?.total ?? 0)}
                 </Text>
               </Text>
             </div>

@@ -1,3 +1,4 @@
+import { formatMoneyExact } from '../utils/money'
 import { useState, useEffect } from 'react'
 import { Card, Table, Tag, Space, Typography, Popconfirm, message, Button, Alert } from 'antd'
 import { UndoOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -64,7 +65,7 @@ function RecycleBinPage(): JSX.Element {
     { title: '二级分类', dataIndex: 'subcategory_name', key: 'sub', width: 110, render: (v: string) => v || '-' },
     {
       title: '金额', dataIndex: 'amount', key: 'amount', width: 100,
-      render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text>,
+      render: (v: number) => <Text strong>¥{formatMoneyExact(Number(v))}</Text>,
     },
     { title: '备注', dataIndex: 'note', key: 'note', ellipsis: true, render: (v: string) => v || '-' },
     {

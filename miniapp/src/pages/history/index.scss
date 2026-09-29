@@ -34,6 +34,8 @@
 .record-date { font-size: 23rpx; color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .record-right { text-align: right; flex-shrink: 0; }
 .record-amount { font-size: 29rpx; font-weight: 500; white-space: nowrap; display: block; font-variant-numeric: tabular-nums; }
+/* v0.9.5 金额异常标记：标出历史脏数据（浮点溢出产生的天文数字），方便用户定位并删除 */
+.amount-warn { margin-top: 6rpx; }
 .record-actions { display: flex; gap: 16rpx; justify-content: flex-end; margin-top: 6rpx; }
 .edit-btn { font-size: 23rpx; color: var(--accent); }
 .delete-btn { font-size: 23rpx; color: var(--exp); }

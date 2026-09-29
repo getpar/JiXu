@@ -1,3 +1,4 @@
+import { formatMoneyExact, MAX_AMOUNT, MAX_AMOUNT_TEXT } from '../utils/money'
 import { useState, useEffect } from 'react'
 import { Card, Table, Tag, Button, Modal, Form, InputNumber, Select, Input, DatePicker, Switch, Typography, Popconfirm, message, Space } from 'antd'
 import { PlusOutlined, DeleteOutlined, SyncOutlined } from '@ant-design/icons'
@@ -59,7 +60,7 @@ function RecurringPage(): JSX.Element {
 
   async function handleExecute(bill: any): Promise<void> {
     await window.electronAPI.executeRecurring(bill.id)
-    message.success(`已记录：${bill.category_name}-${bill.subcategory_name} ¥${bill.amount.toFixed(2)}`)
+    message.success(`已记录：${bill.category_name}-${bill.subcategory_name} ¥${formatMoneyExact(bill.amount)}`)
     loadData()
   }
 
@@ -72,7 +73,7 @@ function RecurringPage(): JSX.Element {
     },
     {
       title: '金额', dataIndex: 'amount', key: 'amount', width: 110,
-      render: (a: number) => <span style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>¥{a.toFixed(2)}</span>,
+      render: (a: number) => <span style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>¥{formatMoneyExact(a)}</span>,
     },
     {
       title: '分类', key: 'cat', width: 170,

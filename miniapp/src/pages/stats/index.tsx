@@ -3,6 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getDailyTrend, getRecords } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
+import { formatMoney } from '../../utils/money'
 import './index.scss'
 
 function getMonth(): string {
@@ -25,9 +26,15 @@ function lastMonths(n: number): string[] {
 const RAMP = ['#2E3A8C', '#3F4C9C', '#505DAC', '#6B74C4', '#8289D0', '#9AA0DA', '#A9AEE0', '#B8BCE6', '#C7CAEC', '#D6D8F2']
 const colorAt = (i: number): string => RAMP[i % RAMP.length]
 
+/**
+ * 图表标签用的短金额：≥1 万自动缩成「万 / 亿 / 万亿」保留 1 位小数，<1 万显示整数。
+ * v0.9.5 起改走统一的 `formatMoney` —— 原实现 `(v/10000).toFixed(1) + 'w'`
+ * 在超大值上会输出科学计数法，且「w」对中文用户不友好。
+ */
 function formatAmount(v: number): string {
-  if (v >= 10000) return (v / 10000).toFixed(1) + 'w'
-  return v.toFixed(0)
+  const abs = Math.abs(Number(v))
+  if (!Number.isFinite(abs)) return '--'
+  return abs >= 1e4 ? formatMoney(abs, 1) : formatMoney(abs, 0)
 }
 
 /** v0.7.6 饼图：按占比累计角度拼 CSS 锥形渐变（纯 View 零 Canvas，老机不支持时退化为空心圆，图例仍可用） */
@@ -112,7 +119,7 @@ export default function Stats(): JSX.Element {
       {/* ---- 合计主卡 ---- */}
       <View className='hero'>
         <Text className='hero-label'>本月{type === 'expense' ? '支出' : '收入'}</Text>
-        <Text className='hero-value'>¥{total.toFixed(2)}</Text>
+        <Text className='hero-value'>¥{formatMoney(total)}</Text>
         <Text className='hero-meta'>
           {stats.length} 个类别{stats.length > 0 ? ` · 最高 ${stats[0]?.categoryName}` : ''}
         </Text>
@@ -131,7 +138,7 @@ export default function Stats(): JSX.Element {
               <Text className='section-title'>本月报告</Text>
               <View className='report-line'>
                 <Text className='report-text'>
-                  这个月花了 <Text className='report-strong'>¥{total.toFixed(0)}</Text>
+                  这个月花了 <Text className='report-strong'>¥{formatMoney(total, 0)}</Text>
                   {momPct === null ? '，还没有上月数据可比' : momPct >= 0
                     ? <>，比上月 <Text className='report-up'>多花 {momPct.toFixed(0)}%</Text></>
                     : <>，比上月 <Text className='report-down'>少花 {Math.abs(momPct).toFixed(0)}%</Text></>}
@@ -140,7 +147,7 @@ export default function Stats(): JSX.Element {
               {stats[0] && (
                 <View className='report-line'>
                   <Text className='report-text'>
-                    大头是「{stats[0].categoryName}」¥{stats[0].total.toFixed(0)}
+                    大头是「{stats[0].categoryName}」¥{formatMoney(stats[0].total, 0)}
                     ，占 {total > 0 ? ((stats[0].total / total) * 100).toFixed(0) : 0}%
                   </Text>
                 </View>
@@ -150,14 +157,14 @@ export default function Stats(): JSX.Element {
               </View>
               {maxRec && (
                 <View className='report-line'>
-                  <Text className='report-text'>最大一笔：¥{maxRec.amount.toFixed(0)} · {maxRec.subcategoryName}（{maxRec.date.slice(5)}）</Text>
+                  <Text className='report-text'>最大一笔：¥{formatMoney(maxRec.amount, 0)} · {maxRec.subcategoryName}（{maxRec.date.slice(5)}）</Text>
                 </View>
               )}
               {incTotal > 0 && (
                 <View className='report-line last'>
                   <Text className='report-text'>
-                    收入 ¥{incTotal.toFixed(0)}，结余 <Text className={incTotal - total >= 0 ? 'report-down' : 'report-up'}>
-                      {incTotal - total >= 0 ? '+' : ''}{(incTotal - total).toFixed(0)}
+                    收入 ¥{formatMoney(incTotal, 0)}，结余 <Text className={incTotal - total >= 0 ? 'report-down' : 'report-up'}>
+                      {incTotal - total >= 0 ? '+' : ''}{formatMoney(incTotal - total, 0)}
                     </Text>
                   </Text>
                 </View>
@@ -220,7 +227,7 @@ export default function Stats(): JSX.Element {
                       <Text className='pct-name'>{s.categoryName}</Text>
                     </View>
                     <View className='pct-right'>
-                      <Text className='pct-amount'>¥{s.total.toFixed(0)}</Text>
+                      <Text className='pct-amount'>¥{formatMoney(s.total, 0)}</Text>
                       <Text className='pct-num'>{pct.toFixed(0)}%</Text>
                     </View>
                   </View>

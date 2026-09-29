@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, purgeRecord, getDeletedRecords, localDateStr, sortRecordsByTimeDesc } from '../../utils/storage'
 import * as XLSX from 'xlsx'
 import { useThemeDark } from '../../utils/theme'
+import { formatMoney, formatMoneyExact, parseAmountInput, sanitizeAmountInput, sumAmounts, isSuspiciousAmount, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
 import './index.scss'
 
 function getMonth(): string {
@@ -87,14 +88,17 @@ export default function History(): JSX.Element {
   }
 
   function openEdit(r: any): void {
-    setEditId(r.id); setEditType(r.type); setEditAmt(String(r.amount))
+    // v0.9.5 回填前先净化：脏数据（如 1.1e125）会变成空串让用户重填，不会把科学计数法塞进输入框
+    setEditId(r.id); setEditType(r.type); setEditAmt(sanitizeAmountInput(String(r.amount)))
     setEditDate(r.date); setEditCat(r.categoryKey); setEditSub(r.subcategoryKey)
     setEditNote(r.note); setEditPerson(r.person || ''); setEditOpen(true)
   }
 
   async function saveEdit(): Promise<void> {
-    const amt = parseFloat(editAmt)
-    if (!amt || amt <= 0) { Taro.showToast({ title: '金额无效', icon: 'none' }); return }
+    // v0.9.5 改用统一的严格解析：带 >0 与上限校验，不再用宽容的 parseFloat
+    const parsed = parseAmountInput(editAmt)
+    if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
+    const amt = parsed.value
     const currentCat = editCategories.find((c) => c.key === editCat)
     const sub = currentCat?.subs.find((s: any) => s.key === editSub)
     await updateRecord(editId, {
@@ -127,8 +131,9 @@ export default function History(): JSX.Element {
   if (keyword) filtered = filtered.filter((r) => r.note.includes(keyword) || r.categoryName.includes(keyword) || r.subcategoryName.includes(keyword) || (r.person || '').includes(keyword))
   filtered = sortRecordsByTimeDesc([...filtered]) // v0.8.7 日期倒序 + 同日按提交时间倒序
 
-  const expenseSum = filtered.filter((r) => r.type === 'expense').reduce((s, r) => s + r.amount, 0)
-  const incomeSum = filtered.filter((r) => r.type === 'income').reduce((s, r) => s + r.amount, 0)
+  // v0.9.5 用 sumAmounts（转「分」累加）替代裸 reduce，消除 0.1+0.2 这类浮点累加误差
+  const expenseSum = sumAmounts(filtered.filter((r) => r.type === 'expense').map((r) => r.amount))
+  const incomeSum = sumAmounts(filtered.filter((r) => r.type === 'income').map((r) => r.amount))
 
   function handleExport(): void {
     if (filtered.length === 0) { Taro.showToast({ title: '无数据可导出', icon: 'none' }); return }
@@ -196,8 +201,8 @@ export default function History(): JSX.Element {
       )}
 
       <View className='summary'>
-        <Text className='summary-item red'>支出 ¥{expenseSum.toFixed(2)}</Text>
-        <Text className='summary-item green'>收入 ¥{incomeSum.toFixed(2)}</Text>
+        <Text className='summary-item red'>支出 ¥{formatMoney(expenseSum)}</Text>
+        <Text className='summary-item green'>收入 ¥{formatMoney(incomeSum)}</Text>
         <Text className='summary-item'>共 {filtered.length} 条</Text>
         <Text className='export-btn' onClick={handleExport}>导出Excel</Text>
       </View>
@@ -218,7 +223,9 @@ export default function History(): JSX.Element {
               <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
             </View>
             <View className='record-right'>
-              <Text className={`record-amount ${r.type === 'income' ? 'green' : 'red'}`}>{r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}</Text>
+              <Text className={`record-amount ${r.type === 'income' ? 'green' : 'red'}`}>{r.type === 'income' ? '+' : '-'}¥{formatMoneyExact(r.amount)}</Text>
+              {/* v0.9.5 历史脏数据（浮点溢出产生的天文数字）打标，便于用户一眼定位并删除 */}
+              {isSuspiciousAmount(r.amount) && <Text className='tag red amount-warn'>金额异常</Text>}
               <View className='record-actions'>
                 <Text className='edit-btn' onClick={() => openEdit(r)}>编辑</Text>
                 <Text className='delete-btn' onClick={() => handleDelete(r.id)}>删除</Text>
@@ -248,7 +255,7 @@ export default function History(): JSX.Element {
                     <Text className='record-date'>{r.date}{r.person ? ' · ' + r.person : ''}{r.note ? ' ' + r.note : ''}</Text>
                   </View>
                   <View className='record-right'>
-                    <Text className='trash-amount'>{r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}</Text>
+                    <Text className='trash-amount'>{r.type === 'income' ? '+' : '-'}¥{formatMoneyExact(r.amount)}</Text>
                     <View className='record-actions'>
                       <Text className='restore-btn' onClick={() => handleRestore(r.id)}>恢复</Text>
                       <Text className='purge-btn' onClick={() => handlePurge(r.id)}>彻底删除</Text>
@@ -268,7 +275,7 @@ export default function History(): JSX.Element {
             <Text className='modal-title'>编辑记录</Text>
 
             <View className='form-item'><Text className='form-label'>金额</Text>
-              <View className='amount-row'><Text className='currency'>¥</Text><Input className='amount-input' type='digit' value={editAmt} onInput={(e) => setEditAmt(e.detail.value)} /></View>
+              <View className='amount-row'><Text className='currency'>¥</Text><Input className='amount-input' type='digit' maxlength={AMOUNT_INPUT_MAX_LENGTH} value={editAmt} onInput={(e) => setEditAmt(sanitizeAmountInput(e.detail.value))} /></View>
             </View>
 
             <View className='form-item'><Text className='form-label'>日期</Text>

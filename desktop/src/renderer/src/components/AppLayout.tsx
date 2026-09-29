@@ -1,3 +1,4 @@
+import { formatMoneyExact } from '../utils/money'
 import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Typography, Button, Switch, message, Modal, Input, Space, notification } from 'antd'
@@ -66,7 +67,7 @@ function AppLayout(): JSX.Element {
     window.electronAPI.onRecurringAutoRun?.((list) => {
       if (!list || list.length === 0) return
       const summary = list
-        .map((b) => `${b.name} ${b.type === 'income' ? '+' : '-'}¥${b.amount.toFixed(2)}`)
+        .map((b) => `${b.name} ${b.type === 'income' ? '+' : '-'}¥${formatMoneyExact(b.amount)}`)
         .join('、')
       notification.success({
         message: `周期账单已自动入账 ${list.length} 笔`,

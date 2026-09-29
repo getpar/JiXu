@@ -3,6 +3,7 @@ import Taro from '@tarojs/taro'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getMergedCategories, addRecord, getRecords, deleteRecord } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
+import { formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
 import './index.scss'
 
 function today(): string {
@@ -117,8 +118,11 @@ export default function Add(): JSX.Element {
   }, [subs, subCount])
 
   async function submit(): Promise<void> {
-    const amt = parseFloat(amount)
-    if (!amt || amt <= 0) { Taro.showToast({ title: '请输入金额', icon: 'none' }); return }
+    // v0.9.5 金额边界校验：parseAmountInput 取代 parseFloat —— 严格卡格式（挡掉 1e5 / 12.3.4）
+    // 并校验 >0 与单笔上限，避免把天文数字写进账本（旧实现只判 >0，线上已出现 1.1e125 的记录）
+    const parsed = parseAmountInput(amount)
+    if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
+    const amt = parsed.value
     if (!catKey) { Taro.showToast({ title: '请选择分类', icon: 'none' }); return }
     if (!subKey) { Taro.showToast({ title: '请选择子分类', icon: 'none' }); return }
 
@@ -141,7 +145,7 @@ export default function Add(): JSX.Element {
     loadFreqPersons(); loadFreq()
     Taro.eventCenter.trigger('dataChanged')
     // v0.9.1 不再弹"记账成功"toast，改弹可撤销条
-    setUndo({ id, label: `${type === 'income' ? '收入' : '支出'} ¥${amt.toFixed(2)}` })
+    setUndo({ id, label: `${type === 'income' ? '收入' : '支出'} ¥${formatMoneyExact(amt)}` })
   }
 
   /** v0.9.1 撤销刚记的这笔：删除记录并把表单回填成刚才的内容，方便改后重记 */
@@ -173,7 +177,7 @@ export default function Add(): JSX.Element {
         <Text className='label'>金额</Text>
         <View className='amount-row'>
           <Text className='currency'>¥</Text>
-          <Input className='amount-input' type='digit' placeholder='0.00' value={amount} onInput={(e) => setAmount(e.detail.value)} focus />
+          <Input className='amount-input' type='digit' maxlength={AMOUNT_INPUT_MAX_LENGTH} placeholder='0.00' value={amount} onInput={(e) => setAmount(sanitizeAmountInput(e.detail.value))} focus />
         </View>
       </View>
 

@@ -1,3 +1,4 @@
+import { MAX_AMOUNT, MAX_AMOUNT_TEXT } from '../utils/money'
 import { useState, useEffect } from 'react'
 import { Card, Form, InputNumber, Select, Input, DatePicker, Button, Typography, message, Segmented } from 'antd'
 import { SaveOutlined, ThunderboltOutlined } from '@ant-design/icons'
@@ -80,7 +81,11 @@ function QuickAddPage(): JSX.Element {
           <Form.Item
             label={<span style={{ fontSize: 13, fontWeight: 600 }}>金额</span>}
             name="amount"
-            rules={[{ required: true, message: '请输入金额' }, { type: 'number', min: 0.01 }]}
+            rules={[
+              { required: true, message: '请输入金额' },
+              { type: 'number', min: 0.01, message: '金额需大于 0' },
+              { type: 'number', max: MAX_AMOUNT, message: `单笔金额不能超过 ${MAX_AMOUNT_TEXT}` },
+            ]}
           >
             <InputNumber
               prefix={<span style={{ color: '#94A3B8', fontSize: 20, fontWeight: 600 }}>¥</span>}
@@ -88,6 +93,7 @@ function QuickAddPage(): JSX.Element {
               style={{ width: '100%', height: 50 }}
               precision={2}
               min={0.01}
+              max={MAX_AMOUNT}
               controls={false}
               autoFocus
             />

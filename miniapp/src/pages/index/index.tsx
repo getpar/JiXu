@@ -7,16 +7,10 @@ import { formatOwnerId } from '../../utils/cloudCore'
 import { reportPushState } from '../../utils/push'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
 import type { ThemePref } from '../../utils/theme'
+import { formatMoney, formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
 import './index.scss'
 
 const THIS_MONTH = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
-
-function formatAmount(val: number): string {
-  const abs = Math.abs(val)
-  if (abs >= 100000000) return (abs / 100000000).toFixed(2) + '亿'
-  if (abs >= 10000) return (abs / 10000).toFixed(2) + '万'
-  return abs.toFixed(2)
-}
 
 export default function Index(): JSX.Element {
   const dark = useThemeDark()
@@ -115,12 +109,16 @@ export default function Index(): JSX.Element {
   Taro.eventCenter.on('dataChanged', refresh)
 
   async function saveBudget(): Promise<void> {
-    const val = Number(budgetInput)
-    if (val >= 0 && budgetInput.trim() !== '') {
-      setBudget(val)
-      await saveBudgetToStorage(val)
-      setShowBudget(false)
-    }
+    const raw = budgetInput.trim()
+    if (raw === '') return
+    // v0.9.5 预算同样走金额边界校验：0 表示清除预算，>0 需落在单笔上限内，
+    // 避免预算被填成天文数字后「已用/剩余」全部失真
+    if (Number(raw) === 0) { setBudget(0); await saveBudgetToStorage(0); setShowBudget(false); return }
+    const parsed = parseAmountInput(raw)
+    if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
+    setBudget(parsed.value)
+    await saveBudgetToStorage(parsed.value)
+    setShowBudget(false)
   }
 
   async function clearAll(): Promise<void> {
@@ -237,11 +235,11 @@ export default function Index(): JSX.Element {
       <View className='hero'>
         <Text className='hero-label'>本月结余</Text>
         <Text className='hero-value'>
-          {balance >= 0 ? '+' : '-'}¥{formatAmount(Math.abs(balance))}
+          {balance >= 0 ? '+' : '-'}¥{formatMoney(Math.abs(balance))}
         </Text>
         <View className='hero-row'>
-          <Text className='hero-item'>支出<Text className='hero-exp'>¥{formatAmount(exp)}</Text></Text>
-          <Text className='hero-item'>收入<Text className='hero-inc'>¥{formatAmount(inc)}</Text></Text>
+          <Text className='hero-item'>支出<Text className='hero-exp'>¥{formatMoney(exp)}</Text></Text>
+          <Text className='hero-item'>收入<Text className='hero-inc'>¥{formatMoney(inc)}</Text></Text>
         </View>
       </View>
 
@@ -256,24 +254,24 @@ export default function Index(): JSX.Element {
             <View className={`budget-fill ${budgetState}`} style={`width:${Math.min(pct, 100)}%`} />
           </View>
           <View className='budget-foot'>
-            <Text className='budget-foot-text'>已用 ¥{formatAmount(exp)}</Text>
-            <Text className='budget-foot-text'>预算 ¥{formatAmount(budget)}</Text>
+            <Text className='budget-foot-text'>已用 ¥{formatMoney(exp)}</Text>
+            <Text className='budget-foot-text'>预算 ¥{formatMoney(budget)}</Text>
           </View>
           {/* v0.9.1 剩余可花 / 日均可花 */}
           <View className='budget-left'>
             <View className='budget-left-item'>
               <Text className='bl-label'>{budgetLeft < 0 ? '已超支' : '剩余可花'}</Text>
               <Text className={`bl-value${budgetLeft < 0 ? ' is-over' : ''}`}>
-                {budgetLeft < 0 ? '-' : ''}¥{formatAmount(Math.abs(budgetLeft))}
+                {budgetLeft < 0 ? '-' : ''}¥{formatMoney(Math.abs(budgetLeft))}
               </Text>
             </View>
             <View className='budget-left-item'>
               <Text className='bl-label'>日均可花</Text>
-              <Text className='bl-value'>¥{formatAmount(dailyLeft)}</Text>
+              <Text className='bl-value'>¥{formatMoney(dailyLeft)}</Text>
             </View>
           </View>
           <Text className='budget-hint'>
-            {budgetLeft >= 0 ? `按本月剩余 ${remainDays} 天算，每天约可花 ¥${formatAmount(dailyLeft)}` : `已超出预算，建议收紧本月开支`}
+            {budgetLeft >= 0 ? `按本月剩余 ${remainDays} 天算，每天约可花 ¥${formatMoney(dailyLeft)}` : `已超出预算，建议收紧本月开支`}
           </Text>
         </View>
       )}
@@ -288,7 +286,7 @@ export default function Index(): JSX.Element {
               <View key={t.categoryKey} className={`top3-row${i === top3.length - 1 ? ' last' : ''}`}>
                 <View className='top3-line'>
                   <Text className='top3-name'>{t.categoryName}</Text>
-                  <Text className='top3-amt'>¥{formatAmount(t.total)} · {p}%</Text>
+                  <Text className='top3-amt'>¥{formatMoney(t.total)} · {p}%</Text>
                 </View>
                 <View className='top3-bar'>
                   <View className={`top3-fill lv${i + 1}`} style={`width:${Math.max(p, 3)}%`} />
@@ -334,7 +332,7 @@ export default function Index(): JSX.Element {
                 </View>
               </View>
               <Text className={`record-amt ${r.type === 'income' ? 't-inc' : 't-exp'}`}>
-                {r.type === 'income' ? '+' : '-'}¥{r.amount.toFixed(2)}
+                {r.type === 'income' ? '+' : '-'}¥{formatMoneyExact(r.amount)}
               </Text>
             </View>
           ))
@@ -412,7 +410,7 @@ export default function Index(): JSX.Element {
             <Text className='modal-title'>设置月度预算</Text>
             <View className='input-wrap'>
               <Text className='input-prefix'>¥</Text>
-              <Input className='input' type='digit' placeholder='输入金额' value={budgetInput} onInput={(e) => setBudgetInput(e.detail.value)} maxlength={10} />
+              <Input className='input' type='digit' placeholder='输入金额' value={budgetInput} onInput={(e) => setBudgetInput(sanitizeAmountInput(e.detail.value))} maxlength={AMOUNT_INPUT_MAX_LENGTH} />
             </View>
             <View className='modal-btns'>
               <View className='btn btn-cancel' onClick={() => setShowBudget(false)}><Text>取消</Text></View>

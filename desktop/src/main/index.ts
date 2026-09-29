@@ -597,7 +597,7 @@ function setupIPC(): void {
       params.push(recordType)
     }
     return queryAll(
-      `SELECT r.category_key, c.category_name, SUM(r.amount) as total
+      `SELECT r.category_key, c.category_name, SUM(ROUND(r.amount * 100)) / 100.0 as total
        FROM records r
        LEFT JOIN categories c ON r.category_key = c.category_key AND r.subcategory_key = c.subcategory_key
        ${where}
@@ -614,7 +614,7 @@ function setupIPC(): void {
       where += ' AND type = ?'
       params.push(recordType)
     }
-    const row = queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM records ${where}`, params)
+    const row = queryOne(`SELECT COALESCE(SUM(ROUND(amount * 100)), 0) / 100.0 as total FROM records ${where}`, params)
     return row?.total || 0
   })
 
@@ -626,7 +626,7 @@ function setupIPC(): void {
       params.push(recordType)
     }
     return queryAll(
-      `SELECT record_date as date, SUM(amount) as total FROM records ${where} GROUP BY record_date ORDER BY record_date`,
+      `SELECT record_date as date, SUM(ROUND(amount * 100)) / 100.0 as total FROM records ${where} GROUP BY record_date ORDER BY record_date`,
       params
     )
   })
@@ -634,19 +634,19 @@ function setupIPC(): void {
   // 月度对比
   ipcMain.handle('stats:compareMonths', (_event, month1: string, month2: string) => {
     const m1 = queryAll(
-      `SELECT r.category_key, c.category_name, SUM(r.amount) as total
+      `SELECT r.category_key, c.category_name, SUM(ROUND(r.amount * 100)) / 100.0 as total
        FROM records r LEFT JOIN categories c ON r.category_key = c.category_key AND r.subcategory_key = c.subcategory_key
        WHERE r.deleted = 0 AND strftime('%Y-%m', r.record_date) = ? AND r.type = 'expense'
        GROUP BY r.category_key ORDER BY total DESC`, [month1]
     )
     const m2 = queryAll(
-      `SELECT r.category_key, c.category_name, SUM(r.amount) as total
+      `SELECT r.category_key, c.category_name, SUM(ROUND(r.amount * 100)) / 100.0 as total
        FROM records r LEFT JOIN categories c ON r.category_key = c.category_key AND r.subcategory_key = c.subcategory_key
        WHERE r.deleted = 0 AND strftime('%Y-%m', r.record_date) = ? AND r.type = 'expense'
        GROUP BY r.category_key ORDER BY total DESC`, [month2]
     )
-    const t1 = queryOne("SELECT COALESCE(SUM(amount),0) as total FROM records WHERE deleted=0 AND strftime('%Y-%m', record_date)=? AND type='expense'", [month1])?.total || 0
-    const t2 = queryOne("SELECT COALESCE(SUM(amount),0) as total FROM records WHERE deleted=0 AND strftime('%Y-%m', record_date)=? AND type='expense'", [month2])?.total || 0
+    const t1 = queryOne("SELECT COALESCE(SUM(ROUND(amount * 100)),0) / 100.0 as total FROM records WHERE deleted=0 AND strftime('%Y-%m', record_date)=? AND type='expense'", [month1])?.total || 0
+    const t2 = queryOne("SELECT COALESCE(SUM(ROUND(amount * 100)),0) / 100.0 as total FROM records WHERE deleted=0 AND strftime('%Y-%m', record_date)=? AND type='expense'", [month2])?.total || 0
     return { month1: { rows: m1, total: t1 }, month2: { rows: m2, total: t2 } }
   })
 

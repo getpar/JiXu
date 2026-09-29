@@ -1,3 +1,4 @@
+import { formatMoney, formatMoneyExact, sumAmounts } from '../utils/money'
 import { useState, useEffect } from 'react'
 import {
   Card, Table, Tag, Select, DatePicker, Input, Space, Typography,
@@ -140,9 +141,10 @@ function HistoryPage(): JSX.Element {
     if (result.success) message.success(`CSV 已导出到：${result.path}`)
   }
 
-  const monthTotal = data.reduce((sum, d) => sum + (d.type === 'income' ? d.amount : -d.amount), 0)
-  const expenseSum = data.filter(d => d.type === 'expense').reduce((s, d) => s + d.amount, 0)
-  const incomeSum = data.filter(d => d.type === 'income').reduce((s, d) => s + d.amount, 0)
+  // v0.9.5 用 sumAmounts（转「分」累加）替代裸 reduce，消除浮点累加误差
+  const expenseSum = sumAmounts(data.filter(d => d.type === 'expense').map(d => d.amount))
+  const incomeSum = sumAmounts(data.filter(d => d.type === 'income').map(d => d.amount))
+  const monthTotal = incomeSum - expenseSum
 
   const editSubs = editSelCat ? catGroups.find(c => c.category_key === editSelCat)?.subcategories.map(s => ({ value: s.subcategory_key, label: s.subcategory_name })) || [] : []
 
@@ -178,7 +180,7 @@ function HistoryPage(): JSX.Element {
           fontSize: 15,
           fontVariantNumeric: 'tabular-nums',
         }}>
-          {r.type === 'income' ? '+' : '-'}¥{a.toFixed(2)}
+          {r.type === 'income' ? '+' : '-'}¥{formatMoneyExact(a)}
         </span>
       ),
       sorter: (a: any, b: any) => a.amount - b.amount,
@@ -289,13 +291,13 @@ function HistoryPage(): JSX.Element {
         }}>
           <Text type="secondary" style={{ fontSize: 13 }}>{selectedMonth.format('M月')}汇总：</Text>
           <Text strong style={{ color: '#EF4444', fontSize: 15 }}>
-            支出 ¥{expenseSum.toFixed(2)}
+            支出 ¥{formatMoney(expenseSum)}
           </Text>
           <Text strong style={{ color: '#10B981', fontSize: 15 }}>
-            收入 ¥{incomeSum.toFixed(2)}
+            收入 ¥{formatMoney(incomeSum)}
           </Text>
           <Text strong style={{ color: monthTotal >= 0 ? '#10B981' : '#EF4444', fontSize: 15 }}>
-            结余 ¥{monthTotal.toFixed(2)}
+            结余 ¥{formatMoney(monthTotal)}
           </Text>
           <div style={{ flex: 1 }} />
           <Text type="secondary" style={{ fontSize: 13 }}>共 {total} 条记录</Text>
