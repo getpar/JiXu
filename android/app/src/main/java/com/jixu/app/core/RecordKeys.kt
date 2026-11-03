@@ -23,7 +23,7 @@ fun recordKey(date: String, amount: Double, subcategoryKey: String, type: String
 
 /** 云端文档 → 去重键（字段缺失时按 JS 模板字符串语义得到 "undefined"/"null"）。 */
 fun recordKey(r: JsonObject): String =
-    "${jsTemplate(r, "date")}|${jsNumberToString(jsNumberOf(r, "amount"))}|" +
+    "${jsTemplate(r, "date")}|${jsTemplate(r, "amount")}|" +
         "${jsTemplate(r, "subcategoryKey")}|${jsTemplate(r, "type")}"
 
 /** 解析去重键（删除凭证落到本地时用它定位该标哪笔）；必须正好 4 段。 */
@@ -72,9 +72,12 @@ internal fun jsTruthy(value: JsonElement?): Boolean = when (value) {
     else -> true
 }
 
-/** 复刻 `obj[key] || fallback`：返回第一个 JS 真值，都没有则 null。 */
-internal fun jsFirstTruthy(vararg values: JsonElement?): JsonElement? =
-    values.firstOrNull { jsTruthy(it) }
+/**
+ * 复刻 JS 的 `a || b || c`：返回第一个真值；全为假值时返回**最后一个**值
+ * （例如 `0 || undefined === undefined`，`0 || 0 === 0`）。
+ */
+internal fun jsOr(vararg values: JsonElement?): JsonElement? =
+    values.firstOrNull { jsTruthy(it) } ?: values.lastOrNull()
 
 internal fun JsonObject.strOrNull(key: String): String? =
     (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content

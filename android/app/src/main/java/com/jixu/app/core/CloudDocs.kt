@@ -17,21 +17,21 @@ import kotlinx.serialization.json.put
 
 /** 云端记录 → 本地记录格式 */
 fun cloudToLocal(r: JsonObject): JsonObject = buildJsonObject {
-    val idValue = jsFirstTruthy(r["_id"])
+    val idValue = r["_id"]?.takeIf { jsTruthy(it) }
     val id = idValue?.let { jsTemplateValue(it) } ?: recordKey(r)
     put("id", JsonPrimitive("cloud_$id"))
 
     putIfPresent("type", r)
     putIfPresent("amount", r)
     putIfPresent("categoryKey", r)
-    put("categoryName", JsonPrimitive(jsFirstTruthy(r["categoryName"])?.let { jsTemplateValue(it) } ?: ""))
+    put("categoryName", JsonPrimitive(jsTemplateValue(jsOr(r["categoryName"], JsonPrimitive("")))))
     putIfPresent("subcategoryKey", r)
-    put("subcategoryName", JsonPrimitive(jsFirstTruthy(r["subcategoryName"])?.let { jsTemplateValue(it) } ?: ""))
-    put("note", JsonPrimitive(jsFirstTruthy(r["note"])?.let { jsTemplateValue(it) } ?: ""))
-    put("person", JsonPrimitive(jsFirstTruthy(r["person"])?.let { jsTemplateValue(it) } ?: ""))
+    put("subcategoryName", JsonPrimitive(jsTemplateValue(jsOr(r["subcategoryName"], JsonPrimitive("")))))
+    put("note", JsonPrimitive(jsTemplateValue(jsOr(r["note"], JsonPrimitive("")))))
+    put("person", JsonPrimitive(jsTemplateValue(jsOr(r["person"], JsonPrimitive("")))))
     putIfPresent("date", r)
     // v0.8.7 老云端数据无提交时刻时退用上云时间
-    val createdAt = jsFirstTruthy(r["createdAt"], r["updatedAt"])
+    val createdAt = jsOr(r["createdAt"], r["updatedAt"])
     if (createdAt != null) put("createdAt", createdAt)
 }
 
@@ -43,11 +43,11 @@ fun localToCloud(r: JsonObject, source: String, now: Long, ownerId: String): Jso
     putIfPresent("categoryName", r)
     putIfPresent("subcategoryKey", r)
     putIfPresent("subcategoryName", r)
-    put("note", JsonPrimitive(jsFirstTruthy(r["note"])?.let { jsTemplateValue(it) } ?: ""))
-    put("person", JsonPrimitive(jsFirstTruthy(r["person"])?.let { jsTemplateValue(it) } ?: ""))
+    put("note", JsonPrimitive(jsTemplateValue(jsOr(r["note"], JsonPrimitive("")))))
+    put("person", JsonPrimitive(jsTemplateValue(jsOr(r["person"], JsonPrimitive("")))))
     putIfPresent("date", r)
     // v0.8.7 提交时刻随云上云（老本地数据退用上传时刻）
-    put("createdAt", jsFirstTruthy(r["createdAt"]) ?: JsonPrimitive(now))
+    put("createdAt", jsOr(r["createdAt"], JsonPrimitive(now))!!)
     put("updatedAt", JsonPrimitive(now))
     put("source", JsonPrimitive(source))
     put("ownerId", JsonPrimitive(ownerId))
@@ -55,15 +55,15 @@ fun localToCloud(r: JsonObject, source: String, now: Long, ownerId: String): Jso
 
 /** 凭证/凭条的人话摘要：云控制台里能看懂这条删/恢复的是哪笔账（引擎不读此字段） */
 fun docLabel(r: JsonObject): String {
-    val cat = jsFirstTruthy(r["categoryName"], r["categoryKey"])?.let { jsTemplateValue(it) } ?: ""
-    val sub = jsFirstTruthy(r["subcategoryName"], r["subcategoryKey"])?.let { jsTemplateValue(it) } ?: ""
-    val note = jsFirstTruthy(r["note"])?.let { jsTemplateValue(it) } ?: ""
+    val cat = jsTemplateValue(jsOr(r["categoryName"], r["categoryKey"], JsonPrimitive("")))
+    val sub = jsTemplateValue(jsOr(r["subcategoryName"], r["subcategoryKey"], JsonPrimitive("")))
+    val note = jsTemplateValue(jsOr(r["note"], JsonPrimitive("")))
     val amount = jsNumberOf(r, "amount")
     val tail = if (note.isNotEmpty()) " 备注:$note" else ""
     return "${jsTemplate(r, "date")} $cat/$sub ¥${formatMoneyExact(amount)}$tail"
 }
 
 private fun JsonObjectBuilder.putIfPresent(key: String, src: JsonObject) {
-    val v = src[key]
-    if (v != null && v !is JsonNull) put(key, v)
+    // JS 里 undefined 的属性序列化时消失，null 会保留；这里同样只在字段存在时搬运
+    if (src.containsKey(key)) put(key, src[key]!!)
 }
