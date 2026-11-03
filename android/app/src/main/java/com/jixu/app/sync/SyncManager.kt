@@ -17,10 +17,12 @@ fun interface SyncTrigger {
  * - 强制：这趟跑完补跑一趟（多次强制合并为一趟），调用方拿到补跑结果
  * - 节流：非强制且距上次完成 < 30 秒 → 直接返回 ok,0,0
  * - [pushSoon]：应用级协程里异步强制同步，不等待、失败静默
+ *
+ * [depsFactory] 是挂起函数：每趟同步现读同步码/设备来源（同步码可能在「加入」时被换掉）。
  */
 class SyncManager(
     private val scope: CoroutineScope,
-    private val depsFactory: () -> SyncDeps,
+    private val depsFactory: suspend () -> SyncDeps,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val throttleMs: Long = 30_000,
 ) : SyncTrigger {
