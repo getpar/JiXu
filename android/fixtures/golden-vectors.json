@@ -1,0 +1,840 @@
+{
+  "_说明": "由 miniapp/scripts/export-android-fixtures.js 从线上 TS 源码实时生成，勿手改。数字 NaN/Infinity 在 JSON 里写成字符串 \"NaN\"/\"Infinity\"/\"-Infinity\"。",
+  "amountToKeyString": [
+    {
+      "amount": 25,
+      "key": "2026-11-03|25|lunch|expense"
+    },
+    {
+      "amount": 2,
+      "key": "2026-11-03|2|lunch|expense"
+    },
+    {
+      "amount": 2400,
+      "key": "2026-11-03|2400|lunch|expense"
+    },
+    {
+      "amount": 18,
+      "key": "2026-11-03|18|lunch|expense"
+    },
+    {
+      "amount": 12.5,
+      "key": "2026-11-03|12.5|lunch|expense"
+    },
+    {
+      "amount": 0.1,
+      "key": "2026-11-03|0.1|lunch|expense"
+    },
+    {
+      "amount": 0.5,
+      "key": "2026-11-03|0.5|lunch|expense"
+    },
+    {
+      "amount": 100.05,
+      "key": "2026-11-03|100.05|lunch|expense"
+    },
+    {
+      "amount": 1234567.89,
+      "key": "2026-11-03|1234567.89|lunch|expense"
+    },
+    {
+      "amount": 999999999.99,
+      "key": "2026-11-03|999999999.99|lunch|expense"
+    },
+    {
+      "amount": 0.30000000000000004,
+      "key": "2026-11-03|0.30000000000000004|lunch|expense"
+    },
+    {
+      "amount": 1.1e+125,
+      "key": "2026-11-03|1.1e+125|lunch|expense"
+    },
+    {
+      "amount": 1e+21,
+      "key": "2026-11-03|1e+21|lunch|expense"
+    },
+    {
+      "amount": 1e-7,
+      "key": "2026-11-03|1e-7|lunch|expense"
+    },
+    {
+      "amount": 0.000001,
+      "key": "2026-11-03|0.000001|lunch|expense"
+    },
+    {
+      "amount": 123456789.12,
+      "key": "2026-11-03|123456789.12|lunch|expense"
+    },
+    {
+      "amount": 30.1,
+      "key": "2026-11-03|30.1|lunch|expense"
+    },
+    {
+      "amount": 19.99,
+      "key": "2026-11-03|19.99|lunch|expense"
+    }
+  ],
+  "parseRecordKey": [
+    {
+      "key": "2026-11-03|25|lunch|expense",
+      "result": {
+        "date": "2026-11-03",
+        "amount": 25,
+        "subcategoryKey": "lunch",
+        "type": "expense"
+      }
+    },
+    {
+      "key": "2026-11-03|12.5|snack|income",
+      "result": {
+        "date": "2026-11-03",
+        "amount": 12.5,
+        "subcategoryKey": "snack",
+        "type": "income"
+      }
+    },
+    {
+      "key": "a|b|c",
+      "result": null
+    },
+    {
+      "key": "2026-11-03|abc|lunch|expense",
+      "result": null
+    },
+    {
+      "key": "",
+      "result": null
+    },
+    {
+      "key": "2026-11-03|1e+21|x|expense",
+      "result": {
+        "date": "2026-11-03",
+        "amount": 1e+21,
+        "subcategoryKey": "x",
+        "type": "expense"
+      }
+    }
+  ],
+  "formatMoney": [
+    {
+      "value": 0,
+      "decimals": 2,
+      "result": "0.00"
+    },
+    {
+      "value": 1234.5,
+      "decimals": 2,
+      "result": "1,234.50"
+    },
+    {
+      "value": 99999.99,
+      "decimals": 2,
+      "result": "10.00万"
+    },
+    {
+      "value": 99999999,
+      "decimals": 2,
+      "result": "1.00亿"
+    },
+    {
+      "value": 123456789,
+      "decimals": 2,
+      "result": "1.23亿"
+    },
+    {
+      "value": 1000000000000,
+      "decimals": 2,
+      "result": "1.00万亿"
+    },
+    {
+      "value": 9999.995,
+      "decimals": 2,
+      "result": "1.00万"
+    },
+    {
+      "value": 0.005,
+      "decimals": 2,
+      "result": "0.01"
+    },
+    {
+      "value": 1.005,
+      "decimals": 2,
+      "result": "1.00"
+    },
+    {
+      "value": -1234.5,
+      "decimals": 2,
+      "result": "1,234.50"
+    },
+    {
+      "value": 2.2e+125,
+      "decimals": 2,
+      "result": ">9999万亿"
+    },
+    {
+      "value": "NaN",
+      "decimals": 2,
+      "result": "--"
+    },
+    {
+      "value": "Infinity",
+      "decimals": 2,
+      "result": "--"
+    },
+    {
+      "value": 123456789,
+      "decimals": 1,
+      "result": "1.2亿"
+    },
+    {
+      "value": 15000,
+      "decimals": 1,
+      "result": "1.5万"
+    },
+    {
+      "value": 8888,
+      "decimals": 0,
+      "result": "8,888"
+    },
+    {
+      "value": 0.4,
+      "decimals": 0,
+      "result": "0"
+    },
+    {
+      "value": 99995,
+      "decimals": 1,
+      "result": "10.0万"
+    }
+  ],
+  "formatMoneyExact": [
+    {
+      "value": 0,
+      "result": "0.00"
+    },
+    {
+      "value": 123456,
+      "result": "123,456.00"
+    },
+    {
+      "value": 0.30000000000000004,
+      "result": "0.30"
+    },
+    {
+      "value": 1.005,
+      "result": "1.00"
+    },
+    {
+      "value": -5.5,
+      "result": "5.50"
+    },
+    {
+      "value": 999999999.99,
+      "result": "999,999,999.99"
+    },
+    {
+      "value": 1000000000000,
+      "result": "1.00万亿"
+    },
+    {
+      "value": 1.1e+125,
+      "result": ">9999万亿"
+    },
+    {
+      "value": "NaN",
+      "result": "--"
+    },
+    {
+      "value": "-Infinity",
+      "result": "--"
+    }
+  ],
+  "parseAmountInput": [
+    {
+      "input": "",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "请输入金额"
+      }
+    },
+    {
+      "input": ".",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "请输入金额"
+      }
+    },
+    {
+      "input": "0",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额需大于 0"
+      }
+    },
+    {
+      "input": "0.00",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额需大于 0"
+      }
+    },
+    {
+      "input": "12",
+      "result": {
+        "ok": true,
+        "value": 12,
+        "message": ""
+      }
+    },
+    {
+      "input": "12.3",
+      "result": {
+        "ok": true,
+        "value": 12.3,
+        "message": ""
+      }
+    },
+    {
+      "input": "12.34",
+      "result": {
+        "ok": true,
+        "value": 12.34,
+        "message": ""
+      }
+    },
+    {
+      "input": "12.345",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额格式不正确"
+      }
+    },
+    {
+      "input": "1.",
+      "result": {
+        "ok": true,
+        "value": 1,
+        "message": ""
+      }
+    },
+    {
+      "input": ".5",
+      "result": {
+        "ok": true,
+        "value": 0.5,
+        "message": ""
+      }
+    },
+    {
+      "input": "12.3.4",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额格式不正确"
+      }
+    },
+    {
+      "input": "1e5",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额格式不正确"
+      }
+    },
+    {
+      "input": "abc",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额格式不正确"
+      }
+    },
+    {
+      "input": "999999999.99",
+      "result": {
+        "ok": true,
+        "value": 999999999.99,
+        "message": ""
+      }
+    },
+    {
+      "input": "1000000000",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "单笔金额不能超过 999,999,999.99"
+      }
+    },
+    {
+      "input": "1,234.5",
+      "result": {
+        "ok": true,
+        "value": 1234.5,
+        "message": ""
+      }
+    },
+    {
+      "input": " 8 ",
+      "result": {
+        "ok": true,
+        "value": 8,
+        "message": ""
+      }
+    },
+    {
+      "input": "-5",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "金额格式不正确"
+      }
+    },
+    {
+      "input": "0012",
+      "result": {
+        "ok": true,
+        "value": 12,
+        "message": ""
+      }
+    },
+    {
+      "input": "9999999999.99",
+      "result": {
+        "ok": false,
+        "value": 0,
+        "message": "单笔金额不能超过 999,999,999.99"
+      }
+    }
+  ],
+  "sanitizeAmountInput": [
+    {
+      "input": "",
+      "result": ""
+    },
+    {
+      "input": "abc",
+      "result": ""
+    },
+    {
+      "input": "12.3.4",
+      "result": "12.34"
+    },
+    {
+      "input": "1e5",
+      "result": ""
+    },
+    {
+      "input": "00012",
+      "result": "12"
+    },
+    {
+      "input": "0.123",
+      "result": "0.12"
+    },
+    {
+      "input": "12345678901234",
+      "result": "1234567890"
+    },
+    {
+      "input": "¥12.5",
+      "result": "12.5"
+    },
+    {
+      "input": "1,234.56",
+      "result": "1234.56"
+    },
+    {
+      "input": ".5",
+      "result": ".5"
+    },
+    {
+      "input": "1.",
+      "result": "1."
+    },
+    {
+      "input": "0",
+      "result": "0"
+    },
+    {
+      "input": "00.5",
+      "result": "0.5"
+    },
+    {
+      "input": "1E3",
+      "result": ""
+    }
+  ],
+  "sumAmounts": [
+    {
+      "values": [
+        0.1,
+        0.2
+      ],
+      "result": 0.3
+    },
+    {
+      "values": [
+        1.005,
+        2.005
+      ],
+      "result": 3.01
+    },
+    {
+      "values": [
+        "NaN",
+        5,
+        "Infinity",
+        1.5
+      ],
+      "result": 6.5
+    },
+    {
+      "values": [],
+      "result": 0
+    },
+    {
+      "values": [
+        19.99,
+        0.01,
+        30
+      ],
+      "result": 50
+    }
+  ],
+  "isValidAmount": [
+    {
+      "value": 0,
+      "result": false
+    },
+    {
+      "value": 0.01,
+      "result": true
+    },
+    {
+      "value": 5,
+      "result": true
+    },
+    {
+      "value": 999999999.99,
+      "result": true
+    },
+    {
+      "value": 1000000000,
+      "result": false
+    },
+    {
+      "value": -1,
+      "result": false
+    },
+    {
+      "value": "NaN",
+      "result": false
+    },
+    {
+      "value": "Infinity",
+      "result": false
+    }
+  ],
+  "isSuspiciousAmount": [
+    {
+      "value": 5,
+      "result": false
+    },
+    {
+      "value": 999999999.99,
+      "result": false
+    },
+    {
+      "value": 1000000000,
+      "result": true
+    },
+    {
+      "value": "NaN",
+      "result": true
+    },
+    {
+      "value": "Infinity",
+      "result": true
+    }
+  ],
+  "advanceDate": [
+    {
+      "date": "2026-01-31",
+      "cycle": "monthly",
+      "result": "2026-02-28"
+    },
+    {
+      "date": "2024-01-31",
+      "cycle": "monthly",
+      "result": "2024-02-29"
+    },
+    {
+      "date": "2026-03-31",
+      "cycle": "monthly",
+      "result": "2026-04-30"
+    },
+    {
+      "date": "2026-12-31",
+      "cycle": "monthly",
+      "result": "2027-01-31"
+    },
+    {
+      "date": "2026-12-15",
+      "cycle": "monthly",
+      "result": "2027-01-15"
+    },
+    {
+      "date": "2026-02-28",
+      "cycle": "monthly",
+      "result": "2026-03-28"
+    },
+    {
+      "date": "2024-02-29",
+      "cycle": "yearly",
+      "result": "2025-02-28"
+    },
+    {
+      "date": "2023-02-28",
+      "cycle": "yearly",
+      "result": "2024-02-28"
+    },
+    {
+      "date": "2026-07-31",
+      "cycle": "yearly",
+      "result": "2027-07-31"
+    },
+    {
+      "date": "2026-02-28",
+      "cycle": "daily",
+      "result": "2026-03-01"
+    },
+    {
+      "date": "2024-02-28",
+      "cycle": "daily",
+      "result": "2024-02-29"
+    },
+    {
+      "date": "2026-12-31",
+      "cycle": "daily",
+      "result": "2027-01-01"
+    },
+    {
+      "date": "2026-12-29",
+      "cycle": "weekly",
+      "result": "2027-01-05"
+    },
+    {
+      "date": "2026-02-25",
+      "cycle": "weekly",
+      "result": "2026-03-04"
+    },
+    {
+      "date": "2026-11-03",
+      "cycle": "once",
+      "result": "2026-11-03"
+    },
+    {
+      "date": "2026-11-03",
+      "cycle": "unknown",
+      "result": "2026-11-03"
+    }
+  ],
+  "normalizeOwnerId": [
+    {
+      "input": "abcd-efgh-jkmn",
+      "result": "ABCDEFGHJKMN"
+    },
+    {
+      "input": " ab cd 12 34 ",
+      "result": "ABCD1234"
+    },
+    {
+      "input": "ABCD1EFG2HJK",
+      "result": "ABCD1EFG2HJK"
+    },
+    {
+      "input": "abc",
+      "result": "ABC"
+    },
+    {
+      "input": "",
+      "result": ""
+    },
+    {
+      "input": "ab_cd-ef.gh!ij",
+      "result": "ABCDEFGHIJ"
+    }
+  ],
+  "formatOwnerId": [
+    {
+      "input": "ABCD1EFG2HJK",
+      "result": "ABCD-1EFG-2HJK"
+    },
+    {
+      "input": "ABCDEFGH",
+      "result": "ABCD-EFGH"
+    },
+    {
+      "input": "ABC",
+      "result": "ABC"
+    },
+    {
+      "input": "",
+      "result": ""
+    }
+  ],
+  "isValidOwnerId": [
+    {
+      "input": "ABCD1EFG2HJK",
+      "result": true
+    },
+    {
+      "input": "ABCDEFGH",
+      "result": true
+    },
+    {
+      "input": "ABCDEFG",
+      "result": false
+    },
+    {
+      "input": "abcdefgh",
+      "result": false
+    },
+    {
+      "input": "ABCD-EFGH",
+      "result": false
+    },
+    {
+      "input": "",
+      "result": false
+    }
+  ],
+  "docLabel": [
+    {
+      "record": {
+        "date": "2026-11-03",
+        "categoryName": "餐饮饮食",
+        "subcategoryName": "午餐",
+        "amount": 25,
+        "note": "公司楼下",
+        "type": "expense",
+        "subcategoryKey": "lunch",
+        "categoryKey": "food"
+      },
+      "result": "2026-11-03 餐饮饮食/午餐 ¥25.00 备注:公司楼下"
+    },
+    {
+      "record": {
+        "date": "2026-11-03",
+        "categoryName": "",
+        "subcategoryName": "",
+        "categoryKey": "pet",
+        "subcategoryKey": "pet_food",
+        "amount": 1.1e+125,
+        "note": "",
+        "type": "expense"
+      },
+      "result": "2026-11-03 pet/pet_food ¥>9999万亿"
+    }
+  ],
+  "cloudToLocal": [
+    {
+      "cloud": {
+        "_id": "abc123",
+        "type": "expense",
+        "amount": 25,
+        "categoryKey": "food",
+        "categoryName": "餐饮饮食",
+        "subcategoryKey": "lunch",
+        "subcategoryName": "午餐",
+        "note": "",
+        "date": "2026-11-03",
+        "updatedAt": 1790000000000,
+        "source": "desktop",
+        "ownerId": "ABCD1EFG2HJK"
+      },
+      "local": {
+        "id": "cloud_abc123",
+        "type": "expense",
+        "amount": 25,
+        "categoryKey": "food",
+        "categoryName": "餐饮饮食",
+        "subcategoryKey": "lunch",
+        "subcategoryName": "午餐",
+        "note": "",
+        "person": "",
+        "date": "2026-11-03",
+        "createdAt": 1790000000000
+      }
+    },
+    {
+      "cloud": {
+        "_id": "def456",
+        "type": "income",
+        "amount": 8000,
+        "categoryKey": "finance",
+        "categoryName": "",
+        "subcategoryKey": "invest",
+        "subcategoryName": "",
+        "note": "工资",
+        "person": "我",
+        "date": "2026-11-01",
+        "createdAt": 1789000000000,
+        "updatedAt": 1790000000000
+      },
+      "local": {
+        "id": "cloud_def456",
+        "type": "income",
+        "amount": 8000,
+        "categoryKey": "finance",
+        "categoryName": "",
+        "subcategoryKey": "invest",
+        "subcategoryName": "",
+        "note": "工资",
+        "person": "我",
+        "date": "2026-11-01",
+        "createdAt": 1789000000000
+      }
+    }
+  ],
+  "localToCloud": [
+    {
+      "local": {
+        "id": "1790000000000",
+        "type": "expense",
+        "amount": 18,
+        "categoryKey": "food",
+        "categoryName": "餐饮饮食",
+        "subcategoryKey": "snack",
+        "subcategoryName": "零食饮料",
+        "note": "拿铁",
+        "date": "2026-11-03",
+        "deleted": 1,
+        "reviveCount": 2
+      },
+      "source": "android",
+      "now": 1790000000500,
+      "ownerId": "ABCD1EFG2HJK",
+      "cloud": {
+        "type": "expense",
+        "amount": 18,
+        "categoryKey": "food",
+        "categoryName": "餐饮饮食",
+        "subcategoryKey": "snack",
+        "subcategoryName": "零食饮料",
+        "note": "拿铁",
+        "person": "",
+        "date": "2026-11-03",
+        "createdAt": 1790000000500,
+        "updatedAt": 1790000000500,
+        "source": "android",
+        "ownerId": "ABCD1EFG2HJK"
+      }
+    }
+  ]
+}

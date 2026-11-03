@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 仅用于冷启动窗口底色，界面配色全部在 Compose 主题里 -->
+    <style name="Theme.JiXu" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/theme_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

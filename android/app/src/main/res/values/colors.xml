@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 开发文档 §9 浅色配色 -->
+    <color name="theme_background">#F5F6F8</color>
+    <color name="ic_launcher_background">#2E82EC</color>
+</resources>
