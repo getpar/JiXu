@@ -17,10 +17,12 @@ interface CloudCollection {
     suspend fun add(doc: JsonObject): String?
 }
 
-/** 最小键值存储接口：小程序端 = Taro Storage，安卓 = DataStore */
+/** 最小键值存储接口：安卓 = DataStore（挂起，避免阻塞主线程） */
 interface KVStore {
-    fun get(key: String): String?
-    fun set(key: String, value: String)
+    suspend fun get(key: String): String?
+    suspend fun set(key: String, value: String)
+    suspend fun remove(key: String) {}
+    suspend fun clear() {}
 }
 
 /** 本地待上传的注销凭条队列项（彻底删除时入队，离线也不丢，上传成功后按 pid 清除） */

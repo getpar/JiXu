@@ -99,8 +99,8 @@ object SyncReplayHarness {
         }
 
         val store = object : KVStore {
-            override fun get(key: String): String? = null
-            override fun set(key: String, value: String) {
+            override suspend fun get(key: String): String? = null
+            override suspend fun set(key: String, value: String) {
                 record(
                     "store.set",
                     buildJsonObject {
