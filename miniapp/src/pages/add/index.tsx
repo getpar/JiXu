@@ -1,7 +1,8 @@
 import { View, Text, Input, Picker, Image } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getMergedCategories, addRecord, getRecords, deleteRecord } from '../../utils/storage'
+import type { CategoryGroup } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
 import { formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
 import './index.scss'
@@ -36,7 +37,7 @@ export default function Add(): JSX.Element {
   const [freqPersons, setFreqPersons] = useState<string[]>([])
   // v0.8.1 拍照凭证：拍小票/选相册，持久存到本机用户目录（不上云，换手机不带走）
   const [photo, setPhoto] = useState('')
-  const [cats, setCats] = useState<any[]>([])
+  const [cats, setCats] = useState<CategoryGroup[]>([])
   // v0.9.1 常用分类置顶：按使用频次排序，常用的一级/二级分类排前面
   const [catCount, setCatCount] = useState<Record<string, number>>({})
   const [subCount, setSubCount] = useState<Record<string, number>>({})
@@ -45,7 +46,18 @@ export default function Add(): JSX.Element {
   const [undoSecs, setUndoSecs] = useState(5)
   const lastSnapshot = useRef<SubmitSnapshot | null>(null)
 
-  useEffect(() => { getMergedCategories().then(setCats) }, [])
+  // v0.9.6 记一笔是常驻内存的 tab 页：每次切回来重读分类（分类页新加的小类立刻能选）；
+  // 日期若还是上次自动填的「今天」而日子已经变了（隔夜没关小程序），换成新的今天，用户手动选过的日期不动
+  const autoDate = useRef(date)
+  useDidShow(() => {
+    getMergedCategories().then(setCats)
+    const t = today()
+    if (t !== autoDate.current) {
+      const prevAuto = autoDate.current
+      autoDate.current = t
+      setDate((cur) => (cur === prevAuto ? t : cur))
+    }
+  })
   useEffect(() => { loadFreqPersons() }, [])
   useEffect(() => { loadFreq() }, [type])
 
@@ -141,7 +153,9 @@ export default function Add(): JSX.Element {
     const id = await addRecord(payload)
     lastSnapshot.current = { type, amount: amt, categoryKey: catKey, subcategoryKey: subKey, note, person: person.trim(), photo, date }
 
-    setAmount(''); setCatKey(''); setSubKey(''); setNote(''); setPerson(''); setPhoto(''); setDate(today())
+    const t = today()
+    autoDate.current = t
+    setAmount(''); setCatKey(''); setSubKey(''); setNote(''); setPerson(''); setPhoto(''); setDate(t)
     loadFreqPersons(); loadFreq()
     Taro.eventCenter.trigger('dataChanged')
     // v0.9.1 不再弹"记账成功"toast，改弹可撤销条

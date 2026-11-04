@@ -40,6 +40,7 @@
 .edit-btn { font-size: 23rpx; color: var(--accent); }
 .delete-btn { font-size: 23rpx; color: var(--exp); }
 .empty { text-align: center; padding: 100rpx 0; color: var(--faint); font-size: 25rpx; }
+.more-hint { text-align: center; padding: 28rpx 0; color: var(--muted); font-size: 24rpx; }
 
 /* 回收站折叠区 */
 .trash { margin-top: 24rpx; background: var(--card); border-radius: 20rpx; overflow: hidden; }

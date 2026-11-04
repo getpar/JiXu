@@ -1,7 +1,8 @@
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo, useEffect } from 'react'
-import { getMonthTotal, getMonthStats, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, localDateStr } from '../../utils/storage'
+import { getMonthTotal, getMonthStats, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, clearAllLocalData } from '../../utils/storage'
+import { localDateStr } from '../../utils/dates'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud, getEnvId, getDefaultEnvId, setCustomEnvId } from '../../utils/cloud'
 import { formatOwnerId } from '../../utils/cloudCore'
 import { reportPushState } from '../../utils/push'
@@ -50,11 +51,12 @@ export default function Index(): JSX.Element {
 
   const isCurrentMonth = month === THIS_MONTH
 
+  // v0.9.6 按「当月 1 号」往前推：旧版在 29~31 号用 setMonth 会溢出（3/31 → 2/31 = 3/3），月份列表出现重复、漏掉二月
   const monthOptions = useMemo(() => {
+    const now = new Date()
     const opts = []
     for (let i = 0; i < 12; i++) {
-      const d = new Date()
-      d.setMonth(d.getMonth() - i)
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
       opts.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
     }
     return opts
@@ -105,8 +107,13 @@ export default function Index(): JSX.Element {
     // 云函数每天推送时读的就是这份数据，保证推送内容跟用户当前待办一致
     reportPushState(0).catch(() => { /* 未配置云环境时静默忽略 */ })
   })
-  useEffect(() => { refresh() }, [month])
-  Taro.eventCenter.on('dataChanged', refresh)
+  useEffect(() => {
+    refresh()
+    // v0.9.6 订阅放进 effect 并在卸载/换月时注销：旧版每次渲染都 on 一次，监听器越积越多，
+    // 一次 dataChanged 触发 N 次刷新，且旧闭包带着旧月份抢着回写，首页可能显示别的月份的数
+    Taro.eventCenter.on('dataChanged', refresh)
+    return () => { Taro.eventCenter.off('dataChanged', refresh) }
+  }, [month])
 
   async function saveBudget(): Promise<void> {
     const raw = budgetInput.trim()
@@ -122,11 +129,13 @@ export default function Index(): JSX.Element {
   }
 
   async function clearAll(): Promise<void> {
+    const code = formatOwnerId(getOwnerId())
     Taro.showModal({
-      title: '清除所有数据？',
-      content: '将删除全部记账记录和预算',
+      title: '清除本机所有数据？',
+      content: `将清空本机的账单、待办、周期账单、预算、自定义分类和小票照片，并换一个新同步码。云端账本不会删除，记下原同步码 ${code}，以后在「云同步」里加入即可找回`,
+      confirmColor: '#C0453C',
       success: (res) => {
-        if (res.confirm) { Taro.clearStorageSync(); setExp(0); setInc(0); setRecent([]); setBudget(0); Taro.eventCenter.trigger('dataChanged') }
+        if (res.confirm) { clearAllLocalData(); setExp(0); setInc(0); setRecent([]); setBudget(0); setTop3([]); setOwnerId_(getOwnerId()); Taro.eventCenter.trigger('dataChanged') }
       },
     })
   }

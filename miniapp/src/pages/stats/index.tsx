@@ -1,4 +1,4 @@
-import { View, Text } from '@tarojs/components'
+import { View, Text, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getDailyTrend, getRecords } from '../../utils/storage'
@@ -11,12 +11,12 @@ function getMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-/** v0.7.5 近 n 个月列表（含本月，本地时区计算，1 月跨年安全） */
-function lastMonths(n: number): string[] {
-  const d = new Date()
+/** v0.7.5 截止到 end 月（含）的近 n 个月列表（本地时区计算，1 月跨年安全） */
+function lastMonths(n: number, end: string): string[] {
+  const [y, m] = end.split('-').map(Number)
   const arr: string[] = []
   for (let i = n - 1; i >= 0; i--) {
-    const t = new Date(d.getFullYear(), d.getMonth() - i, 1)
+    const t = new Date(y, m - 1 - i, 1)
     arr.push(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`)
   }
   return arr
@@ -51,7 +51,10 @@ function buildConic(stats: any[], sum: number): string {
 
 export default function Stats(): JSX.Element {
   const dark = useThemeDark()
-  const [month] = useState(getMonth())
+  // v0.9.6 统计页可切月份（旧版锁死当月，看不了上个月的分类和报告）
+  const [month, setMonth] = useState(getMonth())
+  const monthOptions = lastMonths(12, getMonth()).reverse()
+  const monthLabel = month === getMonth() ? '本月' : `${Number(month.slice(5))}月`
   const [type, setType] = useState<'expense' | 'income'>('expense')
   // v0.9.1 一级/二级分类统计切换
   const [level, setLevel] = useState<'cat' | 'sub'>('cat')
@@ -74,7 +77,7 @@ export default function Stats(): JSX.Element {
   }
 
   async function loadData(): Promise<void> {
-    const keys = lastMonths(6)
+    const keys = lastMonths(6, month)
     const [t, s, d, ms, recs, inc] = await Promise.all([
       getMonthTotal(month, type), getMonthStats(month, type, level), getDailyTrend(month, type),
       Promise.all(keys.map((k) => getMonthTotal(k, type))),
@@ -118,7 +121,9 @@ export default function Stats(): JSX.Element {
 
       {/* ---- 合计主卡 ---- */}
       <View className='hero'>
-        <Text className='hero-label'>本月{type === 'expense' ? '支出' : '收入'}</Text>
+        <Picker mode='selector' range={monthOptions} value={monthOptions.indexOf(month)} onChange={(e) => setMonth(monthOptions[Number(e.detail.value)])}>
+          <Text className='hero-label'>{month} · {monthLabel}{type === 'expense' ? '支出' : '收入'} ▾</Text>
+        </Picker>
         <Text className='hero-value'>¥{formatMoney(total)}</Text>
         <Text className='hero-meta'>
           {stats.length} 个类别{stats.length > 0 ? ` · 最高 ${stats[0]?.categoryName}` : ''}
@@ -135,10 +140,10 @@ export default function Stats(): JSX.Element {
           {/* ====== v0.7.9 月度报告：人话总结这个月（仅支出视角） ====== */}
           {type === 'expense' && (
             <View className='card'>
-              <Text className='section-title'>本月报告</Text>
+              <Text className='section-title'>{monthLabel}报告</Text>
               <View className='report-line'>
                 <Text className='report-text'>
-                  这个月花了 <Text className='report-strong'>¥{formatMoney(total, 0)}</Text>
+                  {monthLabel === '本月' ? '这个月' : monthLabel}花了 <Text className='report-strong'>¥{formatMoney(total, 0)}</Text>
                   {momPct === null ? '，还没有上月数据可比' : momPct >= 0
                     ? <>，比上月 <Text className='report-up'>多花 {momPct.toFixed(0)}%</Text></>
                     : <>，比上月 <Text className='report-down'>少花 {Math.abs(momPct).toFixed(0)}%</Text></>}
@@ -164,7 +169,7 @@ export default function Stats(): JSX.Element {
                 <View className='report-line last'>
                   <Text className='report-text'>
                     收入 ¥{formatMoney(incTotal, 0)}，结余 <Text className={incTotal - total >= 0 ? 'report-down' : 'report-up'}>
-                      {incTotal - total >= 0 ? '+' : ''}{formatMoney(incTotal - total, 0)}
+                      {incTotal - total >= 0 ? '+' : '-'}{formatMoney(incTotal - total, 0)}
                     </Text>
                   </Text>
                 </View>
@@ -179,7 +184,7 @@ export default function Stats(): JSX.Element {
               <View className='pie' style={{ background: buildConic(stats, total) }}>
                 <View className='pie-hole'>
                   <Text className='pie-total'>¥{formatAmount(total)}</Text>
-                  <Text className='pie-sub'>本月合计</Text>
+                  <Text className='pie-sub'>{monthLabel}合计</Text>
                 </View>
               </View>
               <View className='pie-legend'>

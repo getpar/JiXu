@@ -43,7 +43,7 @@ export interface CloudRecord {
   person?: string       // v0.8.0 记录人（谁花的，可选）
   createdAt?: number    // v0.8.7 提交时刻（毫秒时间戳）：跨端保持"同一天内记的早的排后面"
   updatedAt: number     // 毫秒时间戳，增量同步依据
-  source?: string       // 'desktop' | 'miniapp'（旧数据可能没有此字段）
+  source?: string       // 上传设备：'desktop' / 'miniapp'（v0.9.6 前的共用名）或 'miniapp:XXXXXXXX'（每台设备唯一）；旧数据可能没有
   ownerId?: string      // 同步码（户标识），只同步同码记录；旧数据无此字段 = 孤立数据不再拉取
 }
 
@@ -297,8 +297,12 @@ export function createMockCloud(store: KVStore, collectionKey: string = 'mock_cl
 export interface SyncDeps {
   /** 云端集合（模拟云或真云） */
   cloud: CloudCollection
-  /** 本端标识：'miniapp' / 'desktop' */
+  /** 本端标识：v0.9.6 起每台设备唯一（如 'miniapp:7KQ2M9XA'）。引擎跳过 source 与自己相同的注销凭条，
+   *  同户两台同平台设备若共用一个名字，A 彻底删除的账 B 永远不跟删、还会把它补传回云端 */
   source: string
+  /** v0.9.6 本端升级前用过的共用 source（如 'miniapp'）：这类历史注销凭条仍按「自己传的」跳过，保持升级前行为——
+   *  否则升级后可能把离线新记、恰好与旧凭条同号的账当成诈尸行物理删掉 */
+  legacySources?: string[]
   /** 本户同步码（只同步同码记录，多用户隔离的关键） */
   ownerId: string
   /** 读取本地全部记录（含已标记删除的行 — 按笔数配对需要完整底数） */
@@ -412,8 +416,9 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
 
     // 0. v0.8.5 登记对端注销凭条额度（自己上传的不消费）；v0.8.6 实际删除挪到 eff 算好后按差额执行
     const purgeCredit = new Map<string, number>()
+    const ownSources = new Set([deps.source, ...(deps.legacySources || [])])
     for (const p of cloudPurges) {
-      if (!deps.purgeLocal || p.source === deps.source) continue
+      if (!deps.purgeLocal || ownSources.has(p.source || '')) continue
       const n = Math.max(0, p.cancelRec || 0)
       if (n > 0 && parseRecordKey(p.targetKey)) purgeCredit.set(p.targetKey, (purgeCredit.get(p.targetKey) || 0) + n)
     }

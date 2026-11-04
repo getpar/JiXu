@@ -3,8 +3,9 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
 import {
   getRecurringBills, addRecurringBill, deleteRecurringBill,
-  toggleRecurringBill, executeRecurringBill, getMergedCategories, localDateStr,
+  toggleRecurringBill, executeRecurringBill, getMergedCategories,
 } from '../../utils/storage'
+import { localDateStr } from '../../utils/dates'
 import type { RecurringBill } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
 import { formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'

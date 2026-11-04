@@ -85,6 +85,19 @@ export function regenerateOwnerId(): string {
   return id
 }
 
+const DEVICE_TAG_KEY = 'device_tag'
+
+/** v0.9.6 本机同步来源「miniapp:随机 8 位」，每台手机唯一、清除数据后重新生成。
+ *  旧版所有手机共用 'miniapp'：引擎会跳过「自己」传的注销凭条，于是 A 手机彻底删除的账 B 手机不跟删，还会把它补传回云端 */
+export function getDeviceSource(): string {
+  let tag = taroStore.get(DEVICE_TAG_KEY)
+  if (!tag) {
+    tag = newOwnerId().slice(0, 8)
+    taroStore.set(DEVICE_TAG_KEY, tag)
+  }
+  return `miniapp:${tag}`
+}
+
 // wx 是微信小程序全局对象（Taro 编译产物中可用），此处不做类型依赖
 declare const wx: any
 
@@ -143,14 +156,16 @@ function createWxCloudCollection(): CloudCollection | null {
         const offsets: number[] = []
         for (let o = 0; o < total; o += PAGE) offsets.push(o)
         // 分批并行（每批 5 页，避免瞬时请求过多被限流）
-        const all: CloudDoc[] = []
+        // v0.9.6 一趟同步上传的文档 updatedAt 全相同，只按 updatedAt 排序翻页时同值文档的先后不保证稳定，
+        // 可能跨页重复或漏掉（重复会让引擎误以为云端多一笔而重复入账）：补 _id 作稳定次序，并按 _id 去重兜底
+        const all = new Map<string, CloudDoc>()
         for (let i = 0; i < offsets.length; i += 5) {
           const batch = await Promise.all(
-            offsets.slice(i, i + 5).map((o) => q.orderBy('updatedAt', 'asc').skip(o).limit(PAGE).get()),
+            offsets.slice(i, i + 5).map((o) => q.orderBy('updatedAt', 'asc').orderBy('_id', 'asc').skip(o).limit(PAGE).get()),
           )
-          for (const res of batch) all.push(...((res.data || []) as CloudDoc[]))
+          for (const res of batch) for (const d of (res.data || []) as CloudDoc[]) all.set(String(d._id), d)
         }
-        return all
+        return [...all.values()]
       },
       async add(record: NewCloudDoc): Promise<string | null> {
         const res = await col.add({ data: record as any })

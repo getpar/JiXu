@@ -2,21 +2,13 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState } from 'react'
 import { getMergedCategories, addCustomCategory, deleteCustomCategory, isCustomCategory } from '../../utils/storage'
+import type { CategoryGroup } from '../../utils/storage'
 import { useThemeDark } from '../../utils/theme'
 import './index.scss'
 
-const MAJORS = [
-  { key: 'food', name: '餐饮饮食' }, { key: 'transport', name: '交通出行' },
-  { key: 'shopping', name: '购物消费' }, { key: 'housing', name: '住房居家' },
-  { key: 'entertainment', name: '娱乐休闲' }, { key: 'medical', name: '医疗健康' },
-  { key: 'education', name: '教育学习' }, { key: 'social', name: '人情往来' },
-  { key: 'finance', name: '金融保险' }, { key: 'pet', name: '宠物' },
-  { key: 'other', name: '其他杂项' },
-]
-
 export default function Categories(): JSX.Element {
   const dark = useThemeDark()
-  const [cats, setCats] = useState<any[]>([])
+  const [cats, setCats] = useState<CategoryGroup[]>([])
   const [editingGroup, setEditingGroup] = useState<string | null>(null)  // 正在添加的大类 key
   const [subName, setSubName] = useState('')
   const [customKeys, setCustomKeys] = useState<Set<string>>(new Set())
@@ -39,12 +31,13 @@ export default function Categories(): JSX.Element {
 
   useDidShow(() => { loadCats() })
 
-  // 给指定大类添加二级小类
+  // 给指定大类添加二级小类（v0.9.6 从当前分类表取大类名：旧版查写死的默认大类表，自建大类下点「添加小类」直接报错无反应）
   async function handleAddSub(majorKey: string): Promise<void> {
     if (!subName.trim()) { Taro.showToast({ title: '请输入分类名', icon: 'none' }); return }
-    const m = MAJORS.find((x) => x.key === majorKey)!
+    const major = cats.find((x) => x.key === majorKey)
+    if (!major) return
     const subKey = `${majorKey}_${Date.now()}`
-    await addCustomCategory(majorKey, m.name, subKey, subName.trim())
+    await addCustomCategory(majorKey, major.name, subKey, subName.trim())
     await loadCats()
     setEditingGroup(null)
     setSubName('')

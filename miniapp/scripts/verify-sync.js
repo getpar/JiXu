@@ -277,7 +277,7 @@ function createDesktopDevice(cloud, ownerId) {
 
 // ---- 模拟小程序端（走真正的上线代码 runSync；删/改 = 写本地标记后由引擎推凭证） ----
 
-function createMiniappDevice(cloud, ownerId) {
+function createMiniappDevice(cloud, ownerId, source = 'miniapp', legacySources = undefined) {
   let local = []
   let pendingPurges = [] // v0.8.5 待上传注销凭条队列
   const store = memoryStore()
@@ -324,7 +324,7 @@ function createMiniappDevice(cloud, ownerId) {
   }
   function sync() {
     return runSync({
-      cloud, source: 'miniapp', ownerId,
+      cloud, source, legacySources, ownerId,
       getLocal: async () => local, addLocal, markLocal, markAlive: markLocalAlive,
       purgeLocal,
       purges: {
@@ -752,6 +752,37 @@ async function main() {
   dr = await desktop.performSync()
   const d9 = desktop.getLocal().find((r) => r.amount === 63 && r.date === '2026-09-29')
   assert(dr.downloaded >= 1 && d9 && d9.createdAt === t85, '桌面拉回小程序记录同样保留原提交时刻')
+
+  console.log('\n【场景㉒】v0.9.6 同户两台手机各用独立 source：A 彻底删除 → B 跟随物理删除，不回流；升级前共用名的旧凭条不误杀离线新记的同号账')
+  const HOUSE_C = 'WXYZ5ABC6DEF'
+  const phoneA = createMiniappDevice(cloud, HOUSE_C, 'miniapp:PHONEAAA', ['miniapp'])
+  const phoneB = createMiniappDevice(cloud, HOUSE_C, 'miniapp:PHONEBBB', ['miniapp'])
+  const rec19 = { type: 'expense', amount: 19, categoryKey: 'food', categoryName: '餐饮饮食', subcategoryKey: 'lunch', subcategoryName: '午餐', note: '面', date: '2026-10-08' }
+  const noodle = (r) => r.amount === 19 && r.date === '2026-10-08'
+  await phoneA.appAdd(rec19)
+  await phoneB.sync()
+  await phoneA.appDelete(noodle)
+  await phoneB.sync()
+  assert(phoneB.getLocal().some((r) => noodle(r) && r.deleted === 1), 'B 手机跟随标删，进回收站')
+  phoneA.appPurge(noodle)
+  await phoneA.sync()
+  mr = await phoneB.sync()
+  assert(mr.ok && !phoneB.getLocal().some(noodle), 'B 手机消费 A 的注销凭条：回收站那笔也物理删除（旧版同名 source 会跳过）')
+  await phoneA.sync()
+  mr = await phoneB.sync()
+  const rec19Docs = (await cloud.listAll(HOUSE_C)).filter((d) => !d.kind && d.amount === 19).length
+  assert(mr.pushed === 0 && !phoneA.getLocal().some(noodle) && rec19Docs === 1,
+    `收敛：B 不把它补传回云端、A 回收站不诈尸（云端仍只有被核销的那 ${rec19Docs} 张账单）`)
+  // 升级前所有手机都叫 'miniapp'：云端留着一张旧共用名注销凭条；A 升级后离线新记一笔完全同号的账
+  const rec7 = { type: 'expense', amount: 7, categoryKey: 'food', categoryName: '餐饮饮食', subcategoryKey: 'snack', subcategoryName: '零食饮料', note: '', date: '2026-10-09' }
+  const k7 = recordKey(rec7)
+  await cloud.add(localToCloud(rec7, 'miniapp', now(), HOUSE_C))
+  await cloud.add({ kind: 'tombstone', targetKey: k7, ownerId: HOUSE_C, updatedAt: now(), source: 'miniapp' })
+  await cloud.add({ kind: 'purge', pid: 'legacy_p1', targetKey: k7, cancelRec: 1, cancelTomb: 1, cancelRev: 0, ownerId: HOUSE_C, updatedAt: now(), source: 'miniapp' })
+  mr = await phoneA.appAdd(rec7)
+  assert(mr.ok && phoneA.visible().some((r) => recordKey(r) === k7), 'A 手机新记的同号账不被旧共用名凭条当成诈尸行删掉')
+  mr = await phoneB.sync()
+  assert(mr.ok && phoneB.visible().filter((r) => recordKey(r) === k7).length === 1, 'B 手机拉到这笔新账（恰好 1 笔）')
 
   console.log('')
   if (failed === 0) {

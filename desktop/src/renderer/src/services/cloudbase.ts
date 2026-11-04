@@ -62,6 +62,19 @@ export function setOwnerId(raw: string): boolean {
   return true
 }
 
+const DEVICE_TAG_KEY = 'device_tag'
+
+/** v0.9.6 本机同步来源「desktop:随机 8 位」，每台电脑唯一（与小程序 getDeviceSource 同规则）。
+ *  旧版所有电脑共用 'desktop'：自己传的注销凭条要跳过，同户第二台电脑于是永远不跟着彻底删除 */
+function deviceSource(): string {
+  let tag = localStorage.getItem(DEVICE_TAG_KEY)
+  if (!tag) {
+    tag = newOwnerId().slice(0, 8)
+    localStorage.setItem(DEVICE_TAG_KEY, tag)
+  }
+  return `desktop:${tag}`
+}
+
 // ---- 初始化 ----
 
 /** 初始化 CloudBase 连接 */
@@ -230,20 +243,20 @@ export async function uploadRecords(records: NewCloudDoc[]): Promise<{ uploaded:
 export async function downloadAllRecords(): Promise<CloudDoc[]> {
   if (!db) return []
   try {
-    // CloudBase 默认限制一次查 100 条，需要分页
-    const all: CloudDoc[] = []
+    // CloudBase 默认限制一次查 100 条，需要分页；同一趟上传的文档 updatedAt 相同，补 _id 作稳定次序并按 _id 去重，防跨页重复/漏拉
+    const all = new Map<string, CloudDoc>()
     let offset = 0
     const limit = 100
     while (true) {
       const res = await db.collection(COLLECTION)
         .where({ ownerId: getOwnerId() })
-        .skip(offset).limit(limit).orderBy('updatedAt', 'desc').get()
+        .skip(offset).limit(limit).orderBy('updatedAt', 'desc').orderBy('_id', 'desc').get()
       if (!res.data || res.data.length === 0) break
-      all.push(...res.data)
+      for (const d of res.data as CloudDoc[]) all.set(String(d._id), d)
       if (res.data.length < limit) break
       offset += limit
     }
-    return all
+    return [...all.values()]
   } catch (e: any) {
     console.error('[CloudBase] 下载失败:', e.message)
     return []
@@ -351,7 +364,7 @@ function planEntities(
     const c = latest.get(item.id)
     const ts = item.updatedAt || 0
     if (!c || ts > (c.updatedAt || 0)) {
-      toUpload.push({ kind, entityId: item.id, ownerId: getOwnerId(), updatedAt: ts || Date.now(), source: 'desktop', data: item })
+      toUpload.push({ kind, entityId: item.id, ownerId: getOwnerId(), updatedAt: ts || Date.now(), source: deviceSource(), data: item })
     }
   }
   const incoming: EntitySnapshot[] = []
@@ -407,7 +420,8 @@ export async function performSync(
     const toPurge: MarkRequest[] = []
     const purgeCredit = new Map<string, number>()
     for (const p of cloudPurges) {
-      if (p.source === 'desktop') continue // 自己传的凭条对应行早已本地删除，不重复消费
+      // 自己传的凭条对应行早已本地删除，不重复消费；升级前共用名 'desktop' 的历史凭条也按自己的处理（保持旧行为，防误删离线新记的同号账）
+      if (p.source === deviceSource() || p.source === 'desktop') continue
       const n = Math.max(0, p.cancelRec || 0)
       if (n > 0 && parseKey(p.targetKey)) purgeCredit.set(p.targetKey, (purgeCredit.get(p.targetKey) || 0) + n)
     }
@@ -484,7 +498,7 @@ export async function performSync(
     const uploadingPurges: PendingPurge[] = []
     for (const p of pendingPurges) {
       if (!p.pid || cloudPurgePids.has(p.pid)) continue
-      toUpload.push({ kind: 'purge', pid: p.pid, targetKey: p.targetKey, cancelRec: p.cancelRec, cancelTomb: p.cancelTomb, cancelRev: p.cancelRev, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: p.label })
+      toUpload.push({ kind: 'purge', pid: p.pid, targetKey: p.targetKey, cancelRec: p.cancelRec, cancelTomb: p.cancelTomb, cancelRev: p.cancelRev, ownerId: getOwnerId(), updatedAt: Date.now(), source: deviceSource(), label: p.label })
       uploadingPurges.push(p)
     }
     if (uploadingPurges.length > 0) {
@@ -503,7 +517,7 @@ export async function performSync(
       const done = pushPerKey.get(k) || 0
       if (need > 0 && done < need) {
         const { deleted: _dl, reviveCount: _rv, ...doc } = r
-        toUpload.push({ ...doc, source: 'desktop', updatedAt: Date.now() })
+        toUpload.push({ ...doc, source: deviceSource(), updatedAt: Date.now() })
         pushPerKey.set(k, done + 1)
       }
     }
@@ -514,7 +528,7 @@ export async function performSync(
       const need = (tombQuota.get(k) || 0) - effTomb(k)
       const done = pushTombPerKey.get(k) || 0
       if (need > 0 && done < need) {
-        toUpload.push({ kind: 'tombstone', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: docLabel(r) })
+        toUpload.push({ kind: 'tombstone', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: deviceSource(), label: docLabel(r) })
         pushTombPerKey.set(k, done + 1)
       }
     }
@@ -525,7 +539,7 @@ export async function performSync(
       const need = (localReviveCounts.get(k) || 0) - effRev(k)
       const done = pushRevPerKey.get(k) || 0
       if (need > 0 && done < need) {
-        toUpload.push({ kind: 'revive', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: 'desktop', label: docLabel(r) })
+        toUpload.push({ kind: 'revive', targetKey: k, ownerId: getOwnerId(), updatedAt: Date.now(), source: deviceSource(), label: docLabel(r) })
         pushRevPerKey.set(k, done + 1)
       }
     }

@@ -1,7 +1,9 @@
 import { View, Text, Picker, Input } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, useReachBottom } from '@tarojs/taro'
 import { useState, useEffect } from 'react'
-import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, purgeRecord, getDeletedRecords, localDateStr, sortRecordsByTimeDesc } from '../../utils/storage'
+import { getRecords, deleteRecord, updateRecord, getMergedCategories, syncNow, restoreRecord, purgeRecord, getDeletedRecords, sortRecordsByTimeDesc } from '../../utils/storage'
+import { localDateStr } from '../../utils/dates'
+import type { CategoryGroup } from '../../utils/storage'
 import * as XLSX from 'xlsx'
 import { useThemeDark } from '../../utils/theme'
 import { formatMoney, formatMoneyExact, parseAmountInput, sanitizeAmountInput, sumAmounts, isSuspiciousAmount, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
@@ -11,6 +13,9 @@ function getMonth(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
+
+/** v0.9.6 列表分批渲染：「全部日期」下几千条一次性 setData 会明显卡顿，每次触底再多渲染一批 */
+const PAGE_SIZE = 50
 
 export default function History(): JSX.Element {
   const dark = useThemeDark()
@@ -50,6 +55,7 @@ export default function History(): JSX.Element {
       } catch { /* 忽略异常中转数据 */ }
     }
     getRecords().then(setRecords)
+    getMergedCategories().then(setEditCategories) // 分类页新加的小类，编辑时也能选
     setDeletedList(getDeletedRecords())
     // 进入账单页时与云端同步一次，拉到新记录就重新列表
     syncNow().then((r) => {
@@ -100,18 +106,19 @@ export default function History(): JSX.Element {
     if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
     const amt = parsed.value
     const currentCat = editCategories.find((c) => c.key === editCat)
-    const sub = currentCat?.subs.find((s: any) => s.key === editSub)
+    const sub = currentCat?.subs.find((s) => s.key === editSub)
+    // v0.9.6 改了一级分类后二级分类被清空，旧版直接读 sub.name 抛异常，点保存没有任何反应
+    if (!currentCat || !sub) { Taro.showToast({ title: '请选择二级分类', icon: 'none' }); return }
     await updateRecord(editId, {
-      type: editType, amount: amt, categoryKey: editCat, categoryName: currentCat!.name,
-      subcategoryKey: editSub, subcategoryName: sub!.name, note: editNote, person: editPerson.trim(), date: editDate,
+      type: editType, amount: amt, categoryKey: editCat, categoryName: currentCat.name,
+      subcategoryKey: editSub, subcategoryName: sub.name, note: editNote, person: editPerson.trim(), date: editDate,
     })
     setRecords(await getRecords()); Taro.eventCenter.trigger('dataChanged')
     setEditOpen(false)
     Taro.showToast({ title: '修改成功', icon: 'success' })
   }
 
-  const [editCategories, setEditCategories] = useState<any[]>([])
-  useEffect(() => { getMergedCategories().then(setEditCategories) }, [])
+  const [editCategories, setEditCategories] = useState<CategoryGroup[]>([])
   const editCurrentCat = editCategories.find((c) => c.key === editCat)
 
   // 生成月份列表（当前月 + 往前11个月 + 全部日期）
@@ -131,6 +138,9 @@ export default function History(): JSX.Element {
   if (keyword) filtered = filtered.filter((r) => r.note.includes(keyword) || r.categoryName.includes(keyword) || r.subcategoryName.includes(keyword) || (r.person || '').includes(keyword))
   filtered = sortRecordsByTimeDesc([...filtered]) // v0.8.7 日期倒序 + 同日按提交时间倒序
 
+  const [shown, setShown] = useState(PAGE_SIZE)
+  useEffect(() => { setShown(PAGE_SIZE) }, [month, type, keyword, catFilter])
+  useReachBottom(() => setShown((n) => n + PAGE_SIZE))
   // v0.9.5 用 sumAmounts（转「分」累加）替代裸 reduce，消除 0.1+0.2 这类浮点累加误差
   const expenseSum = sumAmounts(filtered.filter((r) => r.type === 'expense').map((r) => r.amount))
   const incomeSum = sumAmounts(filtered.filter((r) => r.type === 'income').map((r) => r.amount))
@@ -209,7 +219,7 @@ export default function History(): JSX.Element {
 
       {filtered.length === 0 ? (
         <View className='empty'><Text>暂无记录</Text></View>
-      ) : filtered.map((r) => (
+      ) : filtered.slice(0, shown).map((r) => (
         <View key={r.id} className='record'>
           <View className='record-main'>
             <View className='record-info'>
@@ -234,6 +244,9 @@ export default function History(): JSX.Element {
           </View>
         </View>
       ))}
+      {filtered.length > shown && (
+        <View className='more-hint'><Text>上滑加载更多（{shown} / {filtered.length}）</Text></View>
+      )}
 
       {/* v0.6.8 回收站折叠区：误删的账都留底在这里，点开可恢复 */}
       {deletedList.length > 0 && (
@@ -290,7 +303,7 @@ export default function History(): JSX.Element {
               </Picker>
               {editCurrentCat && (
                 <View className='sub-grid' style={{ marginTop: '12rpx' }}>
-                  {editCurrentCat.subs.map((s: any) => (
+                  {editCurrentCat.subs.map((s) => (
                     <View key={s.key} className={`sub-item ${editSub === s.key ? 'sub-active' : ''}`} onTouchEnd={(e) => { e.stopPropagation(); setEditSub(s.key) }}>
                       <Text>{s.name}</Text>
                     </View>

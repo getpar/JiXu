@@ -7,7 +7,8 @@
     "dev:weapp": "taro build --type weapp --watch",
     "build:weapp": "taro build --type weapp",
     "postbuild:weapp": "node scripts/copy-cloudfunctions.js",
-    "verify:sync": "tsc src/utils/cloudCore.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/verify-sync.js"
+    "verify:sync": "tsc src/utils/cloudCore.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/verify-sync.js",
+    "export:android": "tsc src/utils/cloudCore.ts src/utils/dates.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/export-android-fixtures.js"
   },
   "dependencies": {
     "@tarojs/components": "3.6.32",

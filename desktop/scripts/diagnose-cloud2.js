@@ -86,7 +86,7 @@ async function main() {
     try {
       const p1 = await db.collection('records').where({ ownerId: target }).skip(0).limit(100).orderBy('updatedAt', 'desc').get()
       const n = (p1.data || []).length
-      const fromMiniapp = (p1.data || []).filter((d) => d.source === 'miniapp').length
+      const fromMiniapp = (p1.data || []).filter((d) => (d.source || '').startsWith('miniapp')).length
       console.log(`户 ${target}: 桌面查询姿势可见 ${n} 条, 其中 miniapp 来源 ${fromMiniapp} 条 ${n < 100 ? '(已拉完)' : '(还有第二页)'}`)
     } catch (e) {
       console.log(`户 ${target}: 查询报错 → ${(e && (e.error || e).message) || JSON.stringify(e).slice(0, 200)}`)

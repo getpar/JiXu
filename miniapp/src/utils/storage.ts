@@ -1,7 +1,8 @@
 import Taro from '@tarojs/taro'
-import { getCloudCollection, getOwnerId, taroStore } from './cloud'
+import { getCloudCollection, getOwnerId, getDeviceSource, taroStore } from './cloud'
 import { runSync, recordKey, parseRecordKey, PendingPurge, SyncableRecord, SyncResult } from './cloudCore'
 import { sumAmounts } from './money'
+import { localDateStr, advanceDate } from './dates'
 
 // ========== 类型 ==========
 
@@ -22,12 +23,6 @@ export interface RecordItem {
   reviveCount?: number  // v0.6.7 被恢复过的次数（同步用：历史删除凭证配额 = 已删 + 恢复次数）
 }
 
-/** 本地时区的 YYYY-MM-DD（v0.6.8 修 iOS/安卓通用时区 bug：
- * toISOString 是 UTC 日期，中国每天 0~8 点会算成"昨天"，导致记账/周期推算日期错位） */
-export function localDateStr(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 // ========== 云同步（本地为主 + 云端双向增量同步） ==========
 
 /**
@@ -39,13 +34,21 @@ export function localDateStr(d: Date = new Date()): string {
 export async function syncNow(force = false): Promise<SyncResult> {
   // v0.8.3 并发锁：冷启动时 app.tsx + 首页 show + 周期检查会几乎同时触发多路同步，
   // 并发跑会互相"看不见"对方在传的数据导致同一笔重复上传，这里合并为同一趟
-  if (syncInFlight) return syncInFlight
+  if (syncInFlight) {
+    if (!force) return syncInFlight
+    // v0.9.6 写后推送撞上正在跑的同步：那一趟读本地时还没有这次的改动，排队补跑一趟（多次请求合并为一趟）
+    if (!syncQueued) {
+      syncQueued = syncInFlight.catch(() => undefined).then(() => { syncQueued = null; return syncNow(true) })
+    }
+    return syncQueued
+  }
   // v0.8.4 节流：进页自动触发的同步 30 秒内不重复拉（账单页秒开优化）；
   // 记账/删除/恢复后的推送传 force=true 必走
   if (!force && Date.now() - lastSyncDoneAt < 30_000) return { ok: true, pushed: 0, pulled: 0 }
   syncInFlight = runSync({
     cloud: getCloudCollection(),
-    source: 'miniapp',
+    source: getDeviceSource(),
+    legacySources: ['miniapp'],
     ownerId: getOwnerId(),
     getLocal: getAllRecords,
     addLocal: mergeLocalRecords,
@@ -61,11 +64,17 @@ export async function syncNow(force = false): Promise<SyncResult> {
   return syncInFlight
 }
 let syncInFlight: Promise<SyncResult> | null = null
+let syncQueued: Promise<SyncResult> | null = null
 let lastSyncDoneAt = 0 // v0.8.4 上次同步完成时刻（进页自动同步的 30 秒节流依据）
+
+/** v0.9.6 本地写完后推一次云：不等待——离线/弱网时保存不再卡在网络超时上，失败由下次同步补传 */
+function pushSoon(): void {
+  syncNow(true).catch(() => { /* 下次同步兜底 */ })
+}
 
 /** 把云端记录写入本地（笔数配对由引擎算好，这里只防同一条云端记录重复入账），返回实际新增条数 */
 async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
-  const list = await getAllRecords()
+  const list = readAllRecordsSync()
   const seenIds = new Set(list.map((r) => String(r.id)))
   let added = 0
   for (const r of records) {
@@ -74,18 +83,14 @@ async function mergeLocalRecords(records: SyncableRecord[]): Promise<number> {
     if (r.id) seenIds.add(String(r.id))
     added++
   }
-  if (added > 0) {
-    sortRecordsByTimeDesc(list)
-    saveLocalRecords(list)
-  }
+  if (added > 0) writeAllRecords(sortRecordsByTimeDesc(list))
   return added
 }
 
 /** 按去重键把 count 笔本地存活记录标删（引擎拉到云端删除凭证时调用） */
 async function markLocalDeleted(key: string, count: number): Promise<number> {
-  const parts = parseRecordKey(key)
-  if (!parts) return 0
-  const list = await getAllRecords()
+  if (!parseRecordKey(key)) return 0
+  const list = readAllRecordsSync()
   let marked = 0
   for (const r of list) {
     if (marked >= count) break
@@ -94,15 +99,14 @@ async function markLocalDeleted(key: string, count: number): Promise<number> {
       marked++
     }
   }
-  if (marked > 0) saveLocalRecords(list)
+  if (marked > 0) writeAllRecords(list)
   return marked
 }
 
 /** v0.6.7 按去重键把 count 笔本地已删记录复活（引擎拉到云端撤销凭条时调用；reviveCount+1 防凭证回灌） */
 async function markLocalAlive(key: string, count: number): Promise<number> {
-  const parts = parseRecordKey(key)
-  if (!parts) return 0
-  const list = await getAllRecords()
+  if (!parseRecordKey(key)) return 0
+  const list = readAllRecordsSync()
   let revived = 0
   for (const r of list) {
     if (revived >= count) break
@@ -112,7 +116,7 @@ async function markLocalAlive(key: string, count: number): Promise<number> {
       revived++
     }
   }
-  if (revived > 0) saveLocalRecords(list)
+  if (revived > 0) writeAllRecords(list)
   return revived
 }
 
@@ -133,16 +137,28 @@ function clearPendingPurges(pids: string[]): void {
   savePendingPurges(getPendingPurges().filter((p) => !gone.has(p.pid)))
 }
 
+/** v0.9.6 物理删除行后清掉不再被任何行引用的小票照片（编辑会让新旧两行共用同一张照片，所以按引用判断） */
+function removeOrphanPhotos(removed: RecordItem[], kept: RecordItem[]): void {
+  const inUse = new Set(kept.map((r) => r.photo).filter(Boolean))
+  const fs = Taro.getFileSystemManager()
+  for (const r of removed) {
+    if (!r.photo || inUse.has(r.photo)) continue
+    try { fs.unlinkSync(r.photo) } catch { /* 文件已不在 */ }
+    inUse.add(r.photo)
+  }
+}
+
 /** 引擎消费对端注销凭条：按去重键物理删除 count 笔本地行（v0.8.6 优先删回收站行，不够再删同号存活行，防离线窗口诈尸） */
 async function purgeLocalRecords(key: string, count: number): Promise<number> {
   if (!parseRecordKey(key)) return 0
-  const list = await getAllRecords()
+  const list = readAllRecordsSync()
   const doomed = new Set<RecordItem>()
   for (const r of list) if (doomed.size < count && r.deleted && recordKey(r) === key) doomed.add(r)
   for (const r of list) if (doomed.size < count && !r.deleted && recordKey(r) === key) doomed.add(r)
   if (doomed.size === 0) return 0
   const kept = list.filter((r) => !doomed.has(r))
-  saveLocalRecords(kept)
+  writeAllRecords(kept)
+  removeOrphanPhotos([...doomed], kept)
   return doomed.size
 }
 
@@ -152,7 +168,7 @@ async function purgeLocalRecords(key: string, count: number): Promise<number> {
  * 对端同步后自己那份回收站行也会被物理删除，且云端计数配平、绝不回流复活。
  */
 export async function purgeRecord(id: string): Promise<void> {
-  const list = await getAllRecords()
+  const list = readAllRecordsSync()
   const rec = list.find((r) => String(r.id) === String(id))
   if (!rec || !(rec.deleted || 0)) return
   const v = rec.reviveCount || 0
@@ -166,10 +182,88 @@ export async function purgeRecord(id: string): Promise<void> {
     label: `${rec.date} ${rec.categoryName || ''}/${rec.subcategoryName || ''} ¥${rec.amount}${rec.note ? ' 备注:' + rec.note : ''}`,
   })
   savePendingPurges(pend)
-  saveLocalRecords(list.filter((r) => String(r.id) !== String(id)))
-  try {
-    await syncNow(true) // 把注销凭条推上云（失败不阻塞，队列会随下次同步补传）
-  } catch { /* ignore */ }
+  const kept = list.filter((r) => String(r.id) !== String(id))
+  writeAllRecords(kept)
+  removeOrphanPhotos([rec], kept)
+  pushSoon() // 把注销凭条推上云（失败不阻塞，队列会随下次同步补传）
+}
+
+// ========== 账单本地存储（v0.9.6 按月分片） ==========
+// 微信 Storage 单个 key 上限 1MB：旧版把全部账单（含回收站与编辑留底行）塞进一个 key，
+// 约 4000 行后 setStorageSync 抛错，记账与同步会静默失败。改为每月一个 key + 月份索引。
+
+const LEGACY_RECORDS_KEY = 'daily_records'
+const RECORD_MONTHS_KEY = 'daily_records_months'
+
+function shardKey(month: string): string {
+  return `daily_records_${month}`
+}
+
+function shardOf(r: RecordItem): string {
+  const m = /^\d{4}-\d{2}/.exec(r.date || '')
+  return m ? m[0] : 'unknown'
+}
+
+/** 各分片当前落盘内容（每次全量读时重建、写时更新），保存时只重写内容真正变了的月份 */
+const shardCache = new Map<string, string>()
+
+function readMonthIndex(): string[] {
+  const raw = Taro.getStorageSync(RECORD_MONTHS_KEY)
+  return raw ? JSON.parse(raw) : []
+}
+
+/** 读全部账单行（含回收站行），月份倒序拼接；首次运行时把旧版单 key 数据迁到分片 */
+function readAllRecordsSync(): RecordItem[] {
+  const legacy = Taro.getStorageSync(LEGACY_RECORDS_KEY)
+  if (legacy) {
+    // 先写分片与索引、再删旧 key：中途被杀下次会从旧 key 整体重放（覆盖写，幂等）
+    shardCache.clear()
+    writeAllRecords(JSON.parse(legacy))
+    Taro.removeStorageSync(LEGACY_RECORDS_KEY)
+  }
+  shardCache.clear()
+  const list: RecordItem[] = []
+  for (const m of readMonthIndex().reverse()) {
+    const raw = Taro.getStorageSync(shardKey(m))
+    if (!raw) continue
+    shardCache.set(m, raw)
+    list.push(...(JSON.parse(raw) as RecordItem[]))
+  }
+  return list
+}
+
+function writeAllRecords(list: RecordItem[]): void {
+  const groups = new Map<string, RecordItem[]>()
+  for (const r of list) {
+    const m = shardOf(r)
+    const g = groups.get(m)
+    if (g) g.push(r)
+    else groups.set(m, [r])
+  }
+  const prev = readMonthIndex()
+  const months = [...groups.keys()].sort()
+  // 先登记新月份再写分片：中途被杀最多留下空索引项（读时跳过），不会出现「有分片没索引」的隐形账
+  const union = [...new Set([...prev, ...months])].sort()
+  if (union.length !== prev.length) Taro.setStorageSync(RECORD_MONTHS_KEY, JSON.stringify(union))
+  for (const m of months) {
+    const json = JSON.stringify(groups.get(m))
+    if (shardCache.get(m) === json) continue
+    Taro.setStorageSync(shardKey(m), json)
+    shardCache.set(m, json)
+  }
+  for (const m of prev) {
+    if (groups.has(m)) continue
+    Taro.removeStorageSync(shardKey(m))
+    shardCache.delete(m)
+  }
+  if (union.length !== months.length) Taro.setStorageSync(RECORD_MONTHS_KEY, JSON.stringify(months))
+}
+
+/** 清空本机全部数据（含小票照片目录）；云端账本不受影响 */
+export function clearAllLocalData(): void {
+  Taro.clearStorageSync()
+  shardCache.clear()
+  try { Taro.getFileSystemManager().rmdirSync(`${Taro.env.USER_DATA_PATH}/photos`, true) } catch { /* 没拍过照 */ }
 }
 
 // ========== 记录 CRUD ==========
@@ -186,88 +280,80 @@ export function sortRecordsByTimeDesc(list: RecordItem[]): RecordItem[] {
 
 export async function getRecords(): Promise<RecordItem[]> {
   // 页面展示用：只返回未删除的记录（软删除对全页面自动生效），并按统一时间倒序
-  return sortRecordsByTimeDesc((await getAllRecords()).filter((r) => !(r.deleted || 0)))
+  return sortRecordsByTimeDesc(readAllRecordsSync().filter((r) => !(r.deleted || 0)))
 }
 
 /** 引擎内部用：返回全部行（含已标记删除的，笔数配对需要完整底数） */
 async function getAllRecords(): Promise<RecordItem[]> {
   // 本地存储是读取的唯一来源（快、可离线），云端由 syncNow 增量合入
-  const raw = Taro.getStorageSync('daily_records')
-  return raw ? JSON.parse(raw) : []
+  return readAllRecordsSync()
 }
 
-function saveLocalRecords(list: RecordItem[]): void {
-  Taro.setStorageSync('daily_records', JSON.stringify(list))
+/** 本地 id = 毫秒时间戳；同一毫秒连记多笔（周期账单批量补记）时顺延 1ms，保证不撞号 */
+let lastLocalId = 0
+function nextLocalId(): string {
+  lastLocalId = Math.max(Date.now(), lastLocalId + 1)
+  return String(lastLocalId)
+}
+
+/** 本地落一笔新账（不触发同步，由调用方 pushSoon） */
+function insertRecordLocal(r: Omit<RecordItem, 'id'>): RecordItem {
+  // v0.8.7 修正：基于全量列表（含回收站行）追加——只拿存活行回写会把本地回收站底单弄丢，
+  // 导致同步时"已删的账"被当缺口从云端重新拉回复活
+  const list = readAllRecordsSync()
+  const id = nextLocalId()
+  const record: RecordItem = { ...r, id, createdAt: r.createdAt || Number(id) }
+  list.unshift(record)
+  writeAllRecords(sortRecordsByTimeDesc(list))
+  return record
 }
 
 export async function addRecord(r: Omit<RecordItem, 'id'>): Promise<string> {
-  // v0.8.7 修正：基于全量列表（含回收站行）追加——旧版用 getRecords() 只拿存活行回写存储，
-  // 会把本地回收站底单弄丢，导致同步时"已删的账"被当缺口从云端重新拉回复活
-  const list = await getAllRecords()
-  const now = Date.now()
-  const record: RecordItem = { ...r, id: now.toString(), createdAt: r.createdAt || now }
-  list.unshift(record)
-  saveLocalRecords(sortRecordsByTimeDesc(list))
+  const record = insertRecordLocal(r)
   // v0.6.5 起不再单条直推云端，改交给同步引擎按"笔数配对"推送：
   // 否则双端同时记同一笔会在云端临时形成两条同键文档，引擎会误判成真有两笔而重复入账
-  try {
-    await syncNow(true)
-  } catch { /* 失败不阻塞，下次进页的 syncNow 会兜底补传 */ }
+  pushSoon()
   // v0.9.1 返回新记录 id：供记账页「撤销」定位刚记的这笔
   return record.id
 }
 
 // v0.6.6 软删除：删除 = 标记 + 同步（把"删除凭证"推上云，另一端同步后也跟着标删；本地数据留底可恢复）
 export async function deleteRecord(id: string): Promise<void> {
-  const list = await getAllRecords()
+  const list = readAllRecordsSync()
   const rec = list.find((r) => String(r.id) === String(id))
   if (!rec || rec.deleted) return
   rec.deleted = 1
-  saveLocalRecords(list)
-  try {
-    await syncNow(true) // 把删除凭证同步上云（失败不阻塞，下次同步会补传）
-  } catch { /* ignore */ }
+  writeAllRecords(list)
+  pushSoon()
 }
 
 // v0.6.8 回收站：读本地已删除记录（按日期倒序），供账单页「已删除」折叠区展示
 export function getDeletedRecords(): RecordItem[] {
-  return sortRecordsByTimeDesc(readDeletedSync())
-}
-
-function readDeletedSync(): RecordItem[] {
-  const raw = Taro.getStorageSync('daily_records')
-  const list: RecordItem[] = raw ? JSON.parse(raw) : []
-  return list.filter((r) => (r.deleted || 0) > 0)
+  return sortRecordsByTimeDesc(readAllRecordsSync().filter((r) => (r.deleted || 0) > 0))
 }
 
 // v0.6.8 从回收站恢复：deleted 归零 + reviveCount+1（作为"撤销凭条"配额，防旧删除凭证回灌），
 // 再静默同步一次，恢复动作会跟到其它端（桌面回收站同步后也会跟着恢复）
 export async function restoreRecord(id: string): Promise<void> {
-  const list = await getAllRecords()
+  const list = readAllRecordsSync()
   const rec = list.find((r) => String(r.id) === String(id))
   if (!rec || !(rec.deleted || 0)) return
   rec.deleted = 0
   rec.reviveCount = (rec.reviveCount || 0) + 1
-  sortRecordsByTimeDesc(list)
-  saveLocalRecords(list)
-  try {
-    await syncNow(true) // 把撤销凭条同步上云（失败不阻塞，下次同步会补传）
-  } catch { /* ignore */ }
+  writeAllRecords(sortRecordsByTimeDesc(list))
+  pushSoon()
 }
 
 // 编辑 = 旧记录打删除凭证 + 新增一笔（两个动作都参与同步，金额/日期/备注/分类修改都能跨端生效）
 export async function updateRecord(id: string, data: Partial<RecordItem>): Promise<void> {
-  const list = await getAllRecords()
+  const list = readAllRecordsSync()
   const old = list.find((r) => String(r.id) === String(id))
   if (!old || old.deleted) return
   old.deleted = 1
   // 编辑产生的新行沿用旧行 createdAt（还是"那一笔"，排序位置不跳到最前）；老数据无此字段时退新行 id
-  list.unshift({ ...old, ...data, id: `${Date.now()}`, createdAt: old.createdAt || Number(old.id) || 0, deleted: 0 } as RecordItem)
-  sortRecordsByTimeDesc(list)
-  saveLocalRecords(list)
-  try {
-    await syncNow(true)
-  } catch { /* ignore */ }
+  list.unshift({ ...old, ...data, id: nextLocalId(), createdAt: old.createdAt || Number(old.id) || 0, deleted: 0 } as RecordItem)
+  writeAllRecords(sortRecordsByTimeDesc(list))
+  pushSoon()
 }
 
 // ========== 统计 ==========
@@ -319,7 +405,14 @@ export async function getDailyTrend(month: string, type?: string): Promise<{ dat
 
 // ========== 分类数据 ==========
 
-export const DEFAULT_CATEGORIES = [
+/** 一级分类及其二级小类（默认分类与自定义分类合并后的统一形态） */
+export interface CategoryGroup {
+  key: string
+  name: string
+  subs: { key: string; name: string }[]
+}
+
+export const DEFAULT_CATEGORIES: CategoryGroup[] = [
   { key: 'food', name: '餐饮饮食', subs: [
     { key: 'breakfast', name: '早餐' }, { key: 'lunch', name: '午餐' }, { key: 'dinner', name: '晚餐' },
     { key: 'snack', name: '零食饮料' }, { key: 'takeout', name: '外卖' }, { key: 'party', name: '聚餐聚会' },
@@ -373,7 +466,7 @@ export function getSubcategoryName(catKey: string, subKey: string): string {
 
 type CustomCat = { categoryKey: string; categoryName: string; subcategoryKey: string; subcategoryName: string }
 
-async function getCustomCategories(): Promise<CustomCat[]> {
+function readCustomCatsSync(): CustomCat[] {
   const raw = Taro.getStorageSync('custom_categories')
   return raw ? JSON.parse(raw) : []
 }
@@ -382,10 +475,9 @@ function saveLocalCustomCats(list: CustomCat[]): void {
   Taro.setStorageSync('custom_categories', JSON.stringify(list))
 }
 
-export async function getMergedCategories(): Promise<typeof DEFAULT_CATEGORIES> {
-  const customs = await getCustomCategories()
+function mergedCategoriesSync(): CategoryGroup[] {
   const merged = DEFAULT_CATEGORIES.map((c) => ({ ...c, subs: [...c.subs] }))
-  for (const cc of customs) {
+  for (const cc of readCustomCatsSync()) {
     let group = merged.find((m) => m.key === cc.categoryKey)
     if (!group) { group = { key: cc.categoryKey, name: cc.categoryName, subs: [] }; merged.push(group) }
     if (!group.subs.find((s) => s.key === cc.subcategoryKey)) {
@@ -395,18 +487,37 @@ export async function getMergedCategories(): Promise<typeof DEFAULT_CATEGORIES> 
   return merged
 }
 
+export async function getMergedCategories(): Promise<CategoryGroup[]> {
+  return mergedCategoriesSync()
+}
+
 export async function addCustomCategory(catKey: string, catName: string, subKey: string, subName: string): Promise<void> {
-  const list = await getCustomCategories()
+  const list = readCustomCatsSync()
   list.push({ categoryKey: catKey, categoryName: catName, subcategoryKey: subKey, subcategoryName: subName })
   saveLocalCustomCats(list)
 }
 
 export async function deleteCustomCategory(subKey: string): Promise<void> {
-  saveLocalCustomCats((await getCustomCategories()).filter((c) => c.subcategoryKey !== subKey))
+  saveLocalCustomCats(readCustomCatsSync().filter((c) => c.subcategoryKey !== subKey))
 }
 
 export async function isCustomCategory(subKey: string): Promise<boolean> {
-  return (await getCustomCategories()).some((c) => c.subcategoryKey === subKey)
+  return readCustomCatsSync().some((c) => c.subcategoryKey === subKey)
+}
+
+type CatNamed = { categoryKey?: string; categoryName?: string; subcategoryKey?: string; subcategoryName?: string }
+
+/** v0.9.6 桌面端推来的待办/周期账单快照只带分类 key、名字为空：落地时按分类表补全，
+ *  否则列表显示空名、自动记出来的账在统计页也是空名 */
+function fillCatNames<T extends CatNamed>(it: T, cats: CategoryGroup[]): T {
+  if (!it.categoryKey || (it.categoryName && it.subcategoryName)) return it
+  const c = cats.find((x) => x.key === it.categoryKey)
+  const s = c?.subs.find((x) => x.key === it.subcategoryKey)
+  return {
+    ...it,
+    categoryName: it.categoryName || c?.name || it.categoryKey,
+    subcategoryName: it.subcategoryName || s?.name || it.subcategoryKey || '',
+  }
 }
 
 // ========== 预算（本地存储）==========
@@ -442,13 +553,17 @@ export interface RecurringBill {
 
 /** 页面展示用：过滤已软删项 */
 export async function getRecurringBills(): Promise<RecurringBill[]> {
-  return (await getAllRecurringBills()).filter((b) => !b.deleted)
+  return readRecurringBillsSync().filter((b) => !b.deleted)
+}
+
+function readRecurringBillsSync(): RecurringBill[] {
+  const raw = Taro.getStorageSync('recurring_bills')
+  return raw ? JSON.parse(raw) : []
 }
 
 /** 同步引擎用：含软删项的全部底数 */
 async function getAllRecurringBills(): Promise<RecurringBill[]> {
-  const raw = Taro.getStorageSync('recurring_bills')
-  return raw ? JSON.parse(raw) : []
+  return readRecurringBillsSync()
 }
 
 function saveRecurringBills(list: RecurringBill[]): void {
@@ -457,12 +572,14 @@ function saveRecurringBills(list: RecurringBill[]): void {
 
 /** 应用云端周期账单快照：按 id 新增/覆盖（含 deleted 标记） */
 async function applyCloudRecurringBills(items: Array<Record<string, any>>): Promise<number> {
-  const list = await getAllRecurringBills()
+  const cats = mergedCategoriesSync()
+  const list = readRecurringBillsSync()
   let changed = 0
   for (const it of items) {
+    const bill = fillCatNames(it as RecurringBill, cats)
     const i = list.findIndex((b) => b.id === it.id)
-    if (i >= 0) list[i] = it as RecurringBill
-    else list.push(it as RecurringBill)
+    if (i >= 0) list[i] = bill
+    else list.push(bill)
     changed++
   }
   if (changed > 0) saveRecurringBills(list)
@@ -470,56 +587,58 @@ async function applyCloudRecurringBills(items: Array<Record<string, any>>): Prom
 }
 
 export async function addRecurringBill(bill: Omit<RecurringBill, 'id'>): Promise<void> {
-  const list = await getAllRecurringBills()
+  const list = readRecurringBillsSync()
   list.push({ ...bill, id: Date.now().toString(), updatedAt: Date.now() })
   saveRecurringBills(list)
+  pushSoon()
 }
 
 /** v0.7.3 删除改软删（同步靠 deleted:true 快照传播，其它端跟删） */
 export async function deleteRecurringBill(id: string): Promise<void> {
-  saveRecurringBills((await getAllRecurringBills()).map((b) => (b.id === id ? { ...b, deleted: true, updatedAt: Date.now() } : b)))
+  saveRecurringBills(readRecurringBillsSync().map((b) => (b.id === id ? { ...b, deleted: true, updatedAt: Date.now() } : b)))
+  pushSoon()
 }
 
 export async function toggleRecurringBill(id: string, active: boolean): Promise<void> {
-  saveRecurringBills((await getAllRecurringBills()).map((b) => (b.id === id ? { ...b, isActive: active, updatedAt: Date.now() } : b)))
+  saveRecurringBills(readRecurringBillsSync().map((b) => (b.id === id ? { ...b, isActive: active, updatedAt: Date.now() } : b)))
+  pushSoon()
 }
 
-/** 向后推一个周期（纯日期计算，手动/自动执行共用；v0.6.9 提取自 executeRecurringBill） */
-function advanceDate(current: string, cycle: RecurringBill['cycle']): string {
-  const next = new Date(current)
-  switch (cycle) {
-    case 'daily': next.setDate(next.getDate() + 1); break
-    case 'weekly': next.setDate(next.getDate() + 7); break
-    case 'monthly': next.setMonth(next.getMonth() + 1); break
-    case 'yearly': next.setFullYear(next.getFullYear() + 1); break
+function recordFromBill(bill: RecurringBill, note: string, date: string): Omit<RecordItem, 'id'> {
+  const b = fillCatNames(bill, mergedCategoriesSync())
+  return {
+    type: b.type, amount: b.amount,
+    categoryKey: b.categoryKey, categoryName: b.categoryName,
+    subcategoryKey: b.subcategoryKey, subcategoryName: b.subcategoryName,
+    note, date,
   }
-  return localDateStr(next)
 }
 
-/** 执行周期账单：创建一笔记录，并自动更新下次日期（v0.7.7 写执行回执，防双端自动再记同一期） */
+/** 执行周期账单：创建一笔记录，并自动更新下次日期（v0.7.7 写执行回执，防双端自动再记同一期）
+ *  v0.9.6 账单与回执在同一拍落盘、同一趟同步上云：旧版先记账并同步、回执晚一步才写，
+ *  另一端恰好在中间同步会看不到回执，把同一期再自动记一遍 */
 export async function executeRecurringBill(id: string): Promise<void> {
-  const bills = await getAllRecurringBills() // 全量底数（含软删），否则回写会把软删项冲掉
+  const bills = readRecurringBillsSync() // 全量底数（含软删），否则回写会把软删项冲掉
   const bill = bills.find((b) => b.id === id)
   if (!bill || bill.deleted || !bill.isActive) return
-
-  // 1. 创建记账记录
-  await addRecord({
-    type: bill.type,
-    amount: bill.amount,
-    categoryKey: bill.categoryKey,
-    categoryName: bill.categoryName,
-    subcategoryKey: bill.subcategoryKey,
-    subcategoryName: bill.subcategoryName,
-    note: bill.note,
-    date: localDateStr(),
-  })
-
-  // 2. 推算下一个周期 + 盖回执（本期已记，自动执行不再重复）
+  insertRecordLocal(recordFromBill(bill, bill.note, localDateStr()))
   bill.lastExecutedFor = bill.nextDate
   bill.nextDate = advanceDate(bill.nextDate, bill.cycle)
   bill.updatedAt = Date.now()
-
   saveRecurringBills(bills)
+  pushSoon()
+}
+
+/** 把日期快进到今天之后的第一个周期日（未知周期不推进时立即停，防死循环） */
+function fastForwardPast(date: string, cycle: string, today: string): string {
+  let next = advanceDate(date, cycle)
+  let guard = 0
+  while (next <= today && guard++ < 2000) {
+    const prev = next
+    next = advanceDate(next, cycle)
+    if (next === prev) break
+  }
+  return next
 }
 
 /** v0.6.9 周期账单自动执行（与桌面端 checkRecurringBills 对齐，纯手机用户到期不再漏记）：
@@ -527,46 +646,29 @@ export async function executeRecurringBill(id: string): Promise<void> {
  * 隔几个月没打开也只补记 1 笔不重复记历史；未知周期防死循环护栏；
  * v0.7.7 执行回执 lastExecutedFor：同一到期期只记一次，防电脑/手机双端各自自动记成两笔 */
 export async function checkAndExecuteDueBills(): Promise<{ name: string; amount: number }[]> {
-  const bills = await getAllRecurringBills() // 全量底数（含软删），否则回写会把软删项冲掉
+  const bills = readRecurringBillsSync() // 全量底数（含软删），否则回写会把软删项冲掉
   const today = localDateStr()
   const executed: { name: string; amount: number }[] = []
   let changed = false
   for (const bill of bills) {
     if (bill.deleted || !bill.isActive || bill.nextDate > today) continue
+    changed = true
     if (bill.lastExecutedFor === bill.nextDate) {
       // 本期已被另一端执行并同步回来：只快进日期，不重复记账
-      let skip = advanceDate(bill.nextDate, bill.cycle)
-      let g = 0
-      while (skip <= today && g++ < 2000) {
-        const prev = skip
-        skip = advanceDate(skip, bill.cycle)
-        if (skip === prev) break
-      }
-      bill.nextDate = skip
+      bill.nextDate = fastForwardPast(bill.nextDate, bill.cycle, today)
       bill.updatedAt = Date.now()
-      changed = true
       continue
     }
-    await addRecord({
-      type: bill.type, amount: bill.amount,
-      categoryKey: bill.categoryKey, categoryName: bill.categoryName,
-      subcategoryKey: bill.subcategoryKey, subcategoryName: bill.subcategoryName,
-      note: `[周期] ${bill.note || ''}`, date: today,
-    })
-    let next = advanceDate(bill.nextDate, bill.cycle)
-    let guard = 0
-    while (next <= today && guard++ < 2000) {
-      const prev = next
-      next = advanceDate(next, bill.cycle)
-      if (next === prev) break // 防死循环
-    }
+    const rec = insertRecordLocal(recordFromBill(bill, `[周期] ${bill.note || ''}`, today))
     bill.lastExecutedFor = bill.nextDate // 回执：本期已记
-    bill.nextDate = next
+    bill.nextDate = fastForwardPast(bill.nextDate, bill.cycle, today)
     bill.updatedAt = Date.now()
-    changed = true
-    executed.push({ name: bill.subcategoryName || bill.categoryName, amount: bill.amount })
+    executed.push({ name: rec.subcategoryName || rec.categoryName, amount: bill.amount })
   }
-  if (changed) saveRecurringBills(bills)
+  if (changed) {
+    saveRecurringBills(bills)
+    pushSoon()
+  }
   return executed
 }
 
@@ -594,13 +696,17 @@ export interface Todo {
 
 /** 页面展示用：过滤已软删项 */
 export async function getTodos(): Promise<Todo[]> {
-  return (await getAllTodos()).filter((t) => !t.deleted)
+  return readTodosSync().filter((t) => !t.deleted)
+}
+
+function readTodosSync(): Todo[] {
+  const raw = Taro.getStorageSync('todos')
+  return raw ? JSON.parse(raw) : []
 }
 
 /** 同步引擎用：含软删项的全部底数 */
 async function getAllTodos(): Promise<Todo[]> {
-  const raw = Taro.getStorageSync('todos')
-  return raw ? JSON.parse(raw) : []
+  return readTodosSync()
 }
 
 function saveTodos(list: Todo[]): void {
@@ -609,12 +715,14 @@ function saveTodos(list: Todo[]): void {
 
 /** 应用云端待办快照：按 id 新增/覆盖（含 deleted 标记） */
 async function applyCloudTodos(items: Array<Record<string, any>>): Promise<number> {
-  const list = await getAllTodos()
+  const cats = mergedCategoriesSync()
+  const list = readTodosSync()
   let changed = 0
   for (const it of items) {
+    const todo = fillCatNames({ ...it, completedDates: it.completedDates || [] } as Todo, cats)
     const i = list.findIndex((t) => t.id === it.id)
-    if (i >= 0) list[i] = it as Todo
-    else list.push(it as Todo)
+    if (i >= 0) list[i] = todo
+    else list.push(todo)
     changed++
   }
   if (changed > 0) saveTodos(list)
@@ -636,7 +744,7 @@ export async function getDueSummary(): Promise<{ due: number; overdue: number }>
 }
 
 export async function addTodo(todo: Omit<Todo, 'id' | 'completedDates' | 'createdAt'>): Promise<void> {
-  const list = await getAllTodos()
+  const list = readTodosSync()
   list.unshift({
     ...todo,
     id: Date.now().toString(),
@@ -645,20 +753,23 @@ export async function addTodo(todo: Omit<Todo, 'id' | 'completedDates' | 'create
     updatedAt: Date.now(),
   })
   saveTodos(list)
+  pushSoon()
 }
 
 /** v0.7.3 删除改软删（同步靠 deleted:true 快照传播，其它端跟删） */
 export async function deleteTodo(id: string): Promise<void> {
-  saveTodos((await getAllTodos()).map((t) => (t.id === id ? { ...t, deleted: true, updatedAt: Date.now() } : t)))
+  saveTodos(readTodosSync().map((t) => (t.id === id ? { ...t, deleted: true, updatedAt: Date.now() } : t)))
+  pushSoon()
 }
 
 export async function toggleTodo(id: string, active: boolean): Promise<void> {
-  saveTodos((await getAllTodos()).map((t) => (t.id === id ? { ...t, isActive: active, updatedAt: Date.now() } : t)))
+  saveTodos(readTodosSync().map((t) => (t.id === id ? { ...t, isActive: active, updatedAt: Date.now() } : t)))
+  pushSoon()
 }
 
 /** 完成待办：记录完成日期，自动推算下一周期，有关联金额则自动记账 */
 export async function completeTodo(id: string): Promise<void> {
-  const list = await getAllTodos()
+  const list = readTodosSync()
   const todo = list.find((t) => t.id === id)
   if (!todo || todo.deleted) return
 
@@ -668,32 +779,24 @@ export async function completeTodo(id: string): Promise<void> {
 
   // 有关联金额 → 自动创建记账记录
   if (todo.amount && todo.amount > 0 && todo.categoryKey && todo.subcategoryKey) {
-    await addRecord({
+    const t = fillCatNames(todo, mergedCategoriesSync())
+    insertRecordLocal({
       type: 'expense',
       amount: todo.amount,
       categoryKey: todo.categoryKey,
-      categoryName: todo.categoryName || '',
+      categoryName: t.categoryName || '',
       subcategoryKey: todo.subcategoryKey,
-      subcategoryName: todo.subcategoryName || '',
+      subcategoryName: t.subcategoryName || '',
       note: `[待办] ${todo.title}${todo.note ? ' · ' + todo.note : ''}`,
       date: today,
     })
   }
 
-  // 推算下一周期或停用
-  if (todo.cycle === 'once') {
-    todo.isActive = false
-  } else {
-    const next = new Date(todo.nextDate)
-    switch (todo.cycle) {
-      case 'daily': next.setDate(next.getDate() + 1); break
-      case 'weekly': next.setDate(next.getDate() + 7); break
-      case 'monthly': next.setMonth(next.getMonth() + 1); break
-      case 'yearly': next.setFullYear(next.getFullYear() + 1); break
-    }
-    todo.nextDate = localDateStr(next)
-  }
+  // 推算下一周期或停用（与桌面端一致：每完成一次只向后推一个周期）
+  if (todo.cycle === 'once') todo.isActive = false
+  else todo.nextDate = advanceDate(todo.nextDate, todo.cycle)
 
   todo.updatedAt = Date.now()
   saveTodos(list)
+  pushSoon()
 }

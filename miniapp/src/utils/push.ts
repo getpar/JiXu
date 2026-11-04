@@ -12,7 +12,8 @@
  */
 import Taro from '@tarojs/taro'
 import { getCloudDatabase, getOwnerId } from './cloud'
-import { getTodos, localDateStr } from './storage'
+import { getTodos } from './storage'
+import { localDateStr } from './dates'
 
 /** ⚠️ 在微信公众平台申请订阅消息模板后，把模板 ID 填到这里（需与云函数里的一致） */
 export const PUSH_TMPL_ID = '6vnLtfnk_r7n7IpsCVJU06ZWRhKWD9v0Do2A6THWsZ8'

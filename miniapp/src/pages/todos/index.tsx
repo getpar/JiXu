@@ -2,9 +2,10 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useState, useMemo } from 'react'
 import {
-  getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories, localDateStr,
+  getTodos, addTodo, deleteTodo, toggleTodo, completeTodo, getMergedCategories,
 } from '../../utils/storage'
-import type { Todo } from '../../utils/storage'
+import { localDateStr } from '../../utils/dates'
+import type { Todo, CategoryGroup } from '../../utils/storage'
 import { enablePushFromTap, pushResultText, getPushState, sendTestReminder, autoRequestPushOnAction, reportPushState } from '../../utils/push'
 import { useThemeDark } from '../../utils/theme'
 import { formatMoneyExact, parseAmountInput, sanitizeAmountInput, AMOUNT_INPUT_MAX_LENGTH } from '../../utils/money'
@@ -18,7 +19,7 @@ export default function Todos(): JSX.Element {
   const dark = useThemeDark()
   const [todos, setTodos] = useState<Todo[]>([])
   const [showModal, setShowModal] = useState(false)
-  const [categories, setCategories] = useState<any[]>([])
+  const [categories, setCategories] = useState<CategoryGroup[]>([])
   const [showDone, setShowDone] = useState(false)
   // v0.9.2 到期提醒：剩余订阅额度（null = 未连接云环境 / 读取失败）
   const [pushRemaining, setPushRemaining] = useState<number | null>(null)
@@ -104,6 +105,8 @@ export default function Todos(): JSX.Element {
       const parsed = parseAmountInput(fAmount)
       if (!parsed.ok) { Taro.showToast({ title: parsed.message, icon: 'none' }); return }
       amount = parsed.value
+      // v0.9.6 填了金额就必须选到二级分类：旧版漏选也能保存，完成时提示「已完成并记账」却一笔没记
+      if (!fSubKey) { Taro.showToast({ title: '填了金额请选择二级分类', icon: 'none' }); return }
     }
     await addTodo({
       title: fTitle.trim(), cycle: fCycle as any, nextDate: fNextDate,
@@ -112,7 +115,7 @@ export default function Todos(): JSX.Element {
       categoryKey: amount > 0 ? fCatKey : undefined,
       categoryName: amount > 0 ? currentCat?.name : undefined,
       subcategoryKey: amount > 0 ? fSubKey || undefined : undefined,
-      subcategoryName: amount > 0 ? (fSubKey ? subs.find((s: any) => s.key === fSubKey)?.name : undefined) : undefined,
+      subcategoryName: amount > 0 ? subs.find((s) => s.key === fSubKey)?.name : undefined,
       note: fNote || undefined,
     })
     Taro.showToast({ title: '已添加', icon: 'success' })
@@ -212,7 +215,7 @@ export default function Todos(): JSX.Element {
               <Text className='todo-date'>{done ? `下次 ${formatDate(t.nextDate)}` : `${formatDate(t.nextDate)}${t.time ? ` ${t.time}` : ''}`}</Text>
             </View>
             <Text className={`todo-title${done ? ' struck' : ''}`}>{t.title}</Text>
-            {t.amount && t.amount > 0 && (
+            {!!t.amount && t.amount > 0 && (
               <View className='todo-amount-row'>
                 <Text className='todo-amount'>¥{formatMoneyExact(t.amount)}</Text>
                 {t.categoryName && <Text className='todo-cat'>· {t.categoryName} - {t.subcategoryName}</Text>}
@@ -253,6 +256,17 @@ export default function Todos(): JSX.Element {
                 {t.completedDates.length > 0 && ` · 最后完成 ${t.completedDates[t.completedDates.length - 1]}`}
                 {!t.isActive && ' · 已停用'}
               </Text>
+              {/* v0.9.6 停用/已完成的待办也能重新启用或删除（旧版进了这里就再也操作不了） */}
+              <View className='todo-actions'>
+                {!t.isActive && (
+                  <View className='toggle-btn on' onClick={() => handleToggle(t.id, true)}>
+                    <Text>重新启用</Text>
+                  </View>
+                )}
+                <View className='del-btn' onClick={() => handleDelete(t.id)}>
+                  <Text>删除</Text>
+                </View>
+              </View>
             </View>
           ))}
         </>
@@ -278,15 +292,13 @@ export default function Todos(): JSX.Element {
               </Picker>
             </View>
 
-            {/* 日期 */}
-            {fCycle === 'once' && (
-              <View className='form-item'>
-                <Text className='form-label'>截止日期</Text>
-                <Picker mode='date' value={fNextDate} onChange={(e) => setFNextDate(e.detail.value)}>
-                  <View className='picker'><Text>{fNextDate}</Text><Text className='arrow'>▼</Text></View>
-                </Picker>
-              </View>
-            )}
+            {/* 日期：v0.9.6 周期待办也能选首次日期（旧版只有单次可选，每月/每周的只能从今天起算） */}
+            <View className='form-item'>
+              <Text className='form-label'>{fCycle === 'once' ? '截止日期' : '首次日期'}</Text>
+              <Picker mode='date' value={fNextDate} onChange={(e) => setFNextDate(e.detail.value)}>
+                <View className='picker'><Text>{fNextDate}</Text><Text className='arrow'>▼</Text></View>
+              </Picker>
+            </View>
 
             {/* 具体时间（可选）*/}
             {['daily', 'weekly', 'once'].includes(fCycle) && (
