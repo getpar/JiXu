@@ -5,11 +5,19 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RecordDao {
     @Query("SELECT * FROM records")
     suspend fun getAll(): List<RecordEntity>
+
+    /** Room Flow 驱动界面刷新（§2：替代小程序的 dataChanged 广播） */
+    @Query("SELECT * FROM records WHERE deleted = 0")
+    fun aliveFlow(): Flow<List<RecordEntity>>
+
+    @Query("SELECT * FROM records WHERE deleted > 0")
+    fun deletedFlow(): Flow<List<RecordEntity>>
 
     @Query("SELECT * FROM records WHERE id = :id")
     suspend fun byId(id: String): RecordEntity?
@@ -33,6 +41,10 @@ interface RecordDao {
     @Query("DELETE FROM records WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    /** 调试入口插入的模拟账单（id 以 debug_ 开头），一键清掉 */
+    @Query("DELETE FROM records WHERE substr(id, 1, 6) = 'debug_'")
+    suspend fun deleteDebug()
+
     @Query("DELETE FROM records")
     suspend fun clear()
 }
@@ -41,6 +53,9 @@ interface RecordDao {
 interface TodoDao {
     @Query("SELECT * FROM todos")
     suspend fun getAll(): List<TodoEntity>
+
+    @Query("SELECT * FROM todos")
+    fun allFlow(): Flow<List<TodoEntity>>
 
     @Query("SELECT * FROM todos WHERE id = :id")
     suspend fun byId(id: String): TodoEntity?
@@ -57,6 +72,9 @@ interface RecurringBillDao {
     @Query("SELECT * FROM recurring_bills")
     suspend fun getAll(): List<RecurringBillEntity>
 
+    @Query("SELECT * FROM recurring_bills")
+    fun allFlow(): Flow<List<RecurringBillEntity>>
+
     @Query("SELECT * FROM recurring_bills WHERE id = :id")
     suspend fun byId(id: String): RecurringBillEntity?
 
@@ -71,6 +89,9 @@ interface RecurringBillDao {
 interface CustomCategoryDao {
     @Query("SELECT * FROM custom_categories ORDER BY seq ASC")
     suspend fun getAll(): List<CustomCategoryEntity>
+
+    @Query("SELECT * FROM custom_categories ORDER BY seq ASC")
+    fun allFlow(): Flow<List<CustomCategoryEntity>>
 
     @Query("SELECT COALESCE(MAX(seq), 0) FROM custom_categories")
     suspend fun maxSeq(): Long

@@ -24,6 +24,10 @@ import com.jixu.app.sync.KVStore
 import com.jixu.app.sync.PendingPurge
 import com.jixu.app.sync.PurgeQueue
 import com.jixu.app.sync.SyncTrigger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -206,6 +210,47 @@ class Repository(
     suspend fun getDeletedRecords(): List<RecordEntity> =
         sortRecordsByTimeDesc(db.records().getAll().filter { it.deleted > 0 })
 
+    /** 存活账单的 Room Flow（已按 §7.4 排序），界面直接观察 */
+    fun observeAliveRecords(): Flow<List<RecordEntity>> =
+        db.records().aliveFlow().map { sortRecordsByTimeDesc(it) }.flowOn(Dispatchers.Default)
+
+    /** 回收站账单的 Room Flow（已按 §7.4 排序） */
+    fun observeDeletedRecords(): Flow<List<RecordEntity>> =
+        db.records().deletedFlow().map { sortRecordsByTimeDesc(it) }.flowOn(Dispatchers.Default)
+
+    // ==================== 调试入口（仅 debug 包可见） ====================
+
+    /** 一次性插入模拟账单，用于检查账单页滑动性能；不触发同步 */
+    suspend fun insertDebugRecords(count: Int) {
+        val now = clock()
+        val today = today()
+        val rows = buildList {
+            for (i in 0 until count) {
+                val cat = com.jixu.app.core.DEFAULT_CATEGORIES[i % com.jixu.app.core.DEFAULT_CATEGORIES.size]
+                val sub = cat.subs[i % cat.subs.size]
+                val type = if (i % 10 == 0) "income" else "expense"
+                val date = java.time.LocalDate.parse(today).minusDays((i % 365).toLong()).toString()
+                add(
+                    RecordEntity(
+                        id = "debug_${now}_$i",
+                        type = type,
+                        amount = ((i * 37) % 500_000 + 1) / 100.0,
+                        categoryKey = cat.key,
+                        categoryName = cat.name,
+                        subcategoryKey = sub.key,
+                        subcategoryName = sub.name,
+                        note = if (i % 3 == 0) "调试数据 $i" else "",
+                        date = date,
+                        createdAt = now - i,
+                    ),
+                )
+            }
+        }
+        db.withTransaction { db.records().insertIgnore(rows) }
+    }
+
+    suspend fun clearDebugRecords() = db.withTransaction { db.records().deleteDebug() }
+
     // ==================== 统计 ====================
 
     suspend fun getMonthTotal(month: String, type: String? = null): Double =
@@ -255,6 +300,20 @@ class Repository(
         },
     )
 
+    /** 自定义分类的 Room Flow（分类管理页实时刷新；只存本机） */
+    fun observeCustomCategories(): Flow<List<CustomCategoryEntity>> =
+        db.customCategories().allFlow().flowOn(Dispatchers.Default)
+
+    /** 合并分类表的 Room Flow（周期账单 / 待办添加弹窗用） */
+    fun observeMergedCategories(): Flow<List<CategoryGroup>> =
+        db.customCategories().allFlow()
+            .map { rows ->
+                mergedCategories(
+                    rows.map { CustomCategory(it.categoryKey, it.categoryName, it.subcategoryKey, it.subcategoryName) },
+                )
+            }
+            .flowOn(Dispatchers.Default)
+
     suspend fun addCustomCategory(catKey: String, catName: String, subKey: String, subName: String) {
         db.withTransaction {
             val seq = db.customCategories().maxSeq() + 1
@@ -289,6 +348,11 @@ class Repository(
 
     suspend fun getRecurringBills(): List<RecurringBillEntity> =
         db.recurringBills().getAll().filter { it.deleted == 0 }
+
+    fun observeRecurringBills(): Flow<List<RecurringBillEntity>> =
+        db.recurringBills().allFlow()
+            .map { rows -> rows.filter { it.deleted == 0 } }
+            .flowOn(Dispatchers.Default)
 
     suspend fun addRecurringBill(input: NewRecurringBill) {
         db.withTransaction {
@@ -383,6 +447,11 @@ class Repository(
     // ==================== 待办 ====================
 
     suspend fun getTodos(): List<TodoEntity> = db.todos().getAll().filter { it.deleted == 0 }
+
+    fun observeTodos(): Flow<List<TodoEntity>> =
+        db.todos().allFlow()
+            .map { rows -> rows.filter { it.deleted == 0 } }
+            .flowOn(Dispatchers.Default)
 
     suspend fun addTodo(input: NewTodo) {
         db.withTransaction {
@@ -506,11 +575,11 @@ class Repository(
     // ==================== 同步适配器（§6.5） ====================
 
     /** 读本地全部账单（含回收站），按 §7.4 统一排序 */
-    suspend fun getAllRecords(): List<JsonObject> = sortRecordsByTimeDesc(db.records().getAll()).map { it.toLocalJson() }
+    suspend fun getAllRecords(): List<JsonObject> = sortRecordsByTimeDesc(syncRows()).map { it.toLocalJson() }
 
     /** 云端记录写入本地：id 已存在就跳过；返回实际新增数 */
     suspend fun mergeLocalRecords(records: List<JsonObject>): Int = db.withTransaction {
-        val seen = db.records().getAll().mapTo(HashSet()) { it.id }
+        val seen = syncRows().mapTo(HashSet()) { it.id }
         var added = 0
         for (r in records) {
             val rawId = r.strOrNull("id")
@@ -526,7 +595,7 @@ class Repository(
     suspend fun markLocalDeleted(key: String, count: Int): Int {
         if (parseRecordKey(key) == null) return 0
         return db.withTransaction {
-            val rows = sortRecordsByTimeDesc(db.records().getAll())
+            val rows = sortRecordsByTimeDesc(syncRows())
             var marked = 0
             for (r in rows) {
                 if (marked >= count) break
@@ -542,7 +611,7 @@ class Repository(
     suspend fun markLocalAlive(key: String, count: Int): Int {
         if (parseRecordKey(key) == null) return 0
         return db.withTransaction {
-            val rows = sortRecordsByTimeDesc(db.records().getAll())
+            val rows = sortRecordsByTimeDesc(syncRows())
             var revived = 0
             for (r in rows) {
                 if (revived >= count) break
@@ -561,7 +630,7 @@ class Repository(
         var removed: List<RecordEntity> = emptyList()
         var kept: List<RecordEntity> = emptyList()
         val deletedCount = db.withTransaction {
-            val all = sortRecordsByTimeDesc(db.records().getAll())
+            val all = sortRecordsByTimeDesc(syncRows())
             val doomed = mutableListOf<RecordEntity>()
             for (r in all) {
                 if (doomed.size >= count) break
@@ -683,6 +752,10 @@ class Repository(
     }
 
     // ==================== 内部 ====================
+
+    /** 同步适配器读本地行：调试模拟账单（id `debug_…`）只用于滑动性能检查，永不参与对账 */
+    private suspend fun syncRows(): List<RecordEntity> =
+        db.records().getAll().filterNot { it.id.startsWith("debug_") }
 
     private suspend fun insertRecordLocal(input: NewRecord): RecordEntity {
         val id = nextLocalId()
