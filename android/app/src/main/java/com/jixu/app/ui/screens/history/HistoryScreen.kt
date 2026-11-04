@@ -1,5 +1,8 @@
 package com.jixu.app.ui.screens.history
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +29,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -49,6 +53,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,6 +70,8 @@ import com.jixu.app.core.sanitizeAmountInput
 import com.jixu.app.core.sumAmounts
 import com.jixu.app.data.RecordUpdate
 import com.jixu.app.data.db.RecordEntity
+import com.jixu.app.export.ExcelExporter
+import com.jixu.app.export.ExportRow
 import com.jixu.app.ui.screens.common.JxAmount
 import com.jixu.app.ui.screens.common.JxCard
 import com.jixu.app.ui.screens.common.JxConfirmDialog
@@ -75,10 +82,14 @@ import com.jixu.app.ui.screens.common.JxLabel
 import com.jixu.app.ui.screens.common.JxLink
 import com.jixu.app.ui.screens.common.JxTag
 import com.jixu.app.ui.screens.common.JxTextField
+import com.jixu.app.ui.screens.common.PhotoPreviewDialog
 import com.jixu.app.ui.screens.common.monthOptions
 import com.jixu.app.ui.screens.common.showToast
 import com.jixu.app.ui.theme.JiXuTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -88,6 +99,8 @@ import kotlin.math.min
 data class HistoryDrillDown(val month: String, val catKey: String?, val catName: String?)
 
 private const val PAGE_SIZE = 50
+
+private const val MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 private data class EditForm(
     val id: String,
@@ -114,8 +127,12 @@ fun HistoryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repo = container.repository
-    val alive by repo.observeAliveRecords().collectAsStateWithLifecycle(emptyList())
-    val deleted by repo.observeDeletedRecords().collectAsStateWithLifecycle(emptyList())
+    // Flow 必须 remember：每次重组新建 Flow 会让 collectAsStateWithLifecycle 反复重启收集，
+    // 页面从后台/系统分享返回时可能一直停在初始空列表
+    val aliveFlow = remember { repo.observeAliveRecords() }
+    val deletedFlow = remember { repo.observeDeletedRecords() }
+    val alive by aliveFlow.collectAsStateWithLifecycle(emptyList())
+    val deleted by deletedFlow.collectAsStateWithLifecycle(emptyList())
 
     var month by rememberSaveable { mutableStateOf("") }
     var type by rememberSaveable { mutableStateOf("") }
@@ -133,6 +150,28 @@ fun HistoryScreen(
     var restoreId by remember { mutableStateOf<String?>(null) }
     var purgeId by remember { mutableStateOf<String?>(null) }
     var editCategories by remember { mutableStateOf<List<CategoryGroup>>(emptyList()) }
+    var exportFile by remember { mutableStateOf<File?>(null) }
+    var exportSheet by remember { mutableStateOf(false) }
+    var photoPreview by remember { mutableStateOf<String?>(null) }
+
+    val saveDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(MIME_XLSX),
+    ) { uri ->
+        val file = exportFile
+        if (uri != null && file != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            file.inputStream().use { input -> input.copyTo(out) }
+                        } ?: error("无法写入")
+                    }.isSuccess
+                }
+                context.showToast(if (ok) "已保存" else "保存失败")
+            }
+        }
+        exportFile = null
+    }
 
     // 进页同步（非强制）；Room Flow 自动刷新列表
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -173,6 +212,58 @@ fun HistoryScreen(
     }
     val incomeSum = remember(filtered) {
         sumAmounts(filtered.filter { it.type == "income" }.map { it.amount }.toDoubleArray())
+    }
+
+    /** §11：导出当前筛选结果，行序同列表 */
+    fun handleExport() {
+        if (filtered.isEmpty()) {
+            context.showToast("无数据可导出")
+            return
+        }
+        scope.launch {
+            val rows = filtered.map {
+                ExportRow(
+                    date = it.date,
+                    type = it.type,
+                    categoryName = it.categoryName,
+                    subcategoryName = it.subcategoryName,
+                    amount = it.amount,
+                    person = it.person,
+                    note = it.note,
+                )
+            }
+            val file = runCatching {
+                ExcelExporter.write(
+                    File(File(context.cacheDir, "exports"), "计序_${localDateStr()}.xlsx"),
+                    rows,
+                )
+            }.getOrNull()
+            if (file == null) {
+                context.showToast("导出失败")
+            } else {
+                exportFile = file
+                exportSheet = true
+            }
+        }
+    }
+
+    fun shareFile(file: File) {
+        runCatching {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                this.type = MIME_XLSX // 必须显式 this：局部筛选变量 type 会遮蔽 Intent.type
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newRawUri("计序导出", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            // 不包 createChooser：部分国产 ROM 的 ChooserActivity 会过滤掉微信等目标（实测小米）
+            context.startActivity(intent)
+            exportSheet = false
+        }.onFailure { context.showToast("导出失败") }
     }
 
     LaunchedEffect(month, type, keyword, catKey) { shown = PAGE_SIZE }
@@ -285,7 +376,7 @@ fun HistoryScreen(
                 Text("支出 ¥" + formatMoney(expenseSum), fontSize = 12.sp, color = colors.exp, fontWeight = FontWeight.Medium)
                 Text("收入 ¥" + formatMoney(incomeSum), fontSize = 12.sp, color = colors.inc, fontWeight = FontWeight.Medium)
                 Text("共 ${filtered.size} 条", fontSize = 12.sp, color = colors.muted)
-                JxLink("导出Excel", onClick = { context.showToast("导出功能将在 P7 阶段实现") }, size = 12.sp)
+                JxLink("导出Excel", onClick = { handleExport() }, size = 12.sp)
             }
         }
 
@@ -310,6 +401,7 @@ fun HistoryScreen(
                     )
                 },
                 onDelete = { deleteId = r.id },
+                onPhoto = { photoPreview = r.photo },
             )
         }
 
@@ -598,6 +690,55 @@ fun HistoryScreen(
             DatePicker(state = pickerState)
         }
     }
+
+    // ===== 导出选项（§11：底部选项） =====
+    val file = exportFile
+    if (exportSheet && file != null) {
+        ModalBottomSheet(
+            onDismissRequest = { exportSheet = false },
+            containerColor = colors.card,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = 26.dp),
+            ) {
+                Text("导出 Excel", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = colors.text)
+                Spacer(Modifier.height(4.dp))
+                Text(file.name, fontSize = 11.sp, color = colors.muted)
+                Spacer(Modifier.height(12.dp))
+                JxDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { shareFile(file) }
+                        .padding(vertical = 15.dp),
+                ) {
+                    Text("发送给微信好友 / 其他应用", fontSize = 15.sp, color = colors.text)
+                }
+                JxDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            exportSheet = false
+                            saveDocument.launch(file.name)
+                        }
+                        .padding(vertical = 15.dp),
+                ) {
+                    Text("保存到手机", fontSize = 15.sp, color = colors.text)
+                }
+            }
+        }
+    }
+
+    // ===== 小票大图（§12） =====
+    photoPreview?.let { path ->
+        PhotoPreviewDialog(path = path, onDismiss = { photoPreview = null })
+    }
 }
 
 @Composable
@@ -618,7 +759,12 @@ private fun FilterCard(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RecordRow(record: RecordEntity, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun RecordRow(
+    record: RecordEntity,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onPhoto: () -> Unit,
+) {
     val colors = JiXuTheme.colors
     JxCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -627,7 +773,12 @@ private fun RecordRow(record: RecordEntity, onEdit: () -> Unit, onDelete: () -> 
                     JxTag(record.categoryName)
                     JxTag(record.subcategoryName, fg = colors.sub, bg = colors.soft)
                     if (!record.photo.isNullOrEmpty()) {
-                        JxTag("凭证", fg = colors.accent2, bg = colors.accentSoft)
+                        JxTag(
+                            "凭证",
+                            fg = colors.accent2,
+                            bg = colors.accentSoft,
+                            modifier = Modifier.clickable(onClick = onPhoto),
+                        )
                     }
                 }
                 Spacer(Modifier.height(6.dp))

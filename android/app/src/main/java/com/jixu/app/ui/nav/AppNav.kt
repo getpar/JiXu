@@ -15,6 +15,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,12 +59,23 @@ private val tabs = listOf(
 private val tabRoutes = tabs.map { it.route }.toSet()
 
 @Composable
-fun JiXuNavHost() {
+fun JiXuNavHost(
+    openTodos: Boolean = false,
+    onOpenTodosHandled: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val colors = JiXuTheme.colors
     val context = LocalContext.current
     val container = (context.applicationContext as JiXuApp).container
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+
+    // 点到期提醒通知直达待办页（已运行/冷启动都走这里）
+    LaunchedEffect(openTodos) {
+        if (openTodos) {
+            navController.navigate("todos") { launchSingleTop = true }
+            onOpenTodosHandled()
+        }
+    }
 
     var homeBadge by remember { mutableIntStateOf(0) }
     var historyDrillDown by remember { mutableStateOf<HistoryDrillDown?>(null) }

@@ -1,5 +1,9 @@
 package com.jixu.app.ui.screens.add
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,13 +66,19 @@ import com.jixu.app.data.NewRecord
 import com.jixu.app.data.db.RecordEntity
 import com.jixu.app.ui.screens.common.JxCard
 import com.jixu.app.ui.screens.common.JxChip
+import com.jixu.app.ui.screens.common.JxDialog
+import com.jixu.app.ui.screens.common.JxDivider
 import com.jixu.app.ui.screens.common.JxLabel
+import com.jixu.app.ui.screens.common.JxSmallAction
 import com.jixu.app.ui.screens.common.JxTextField
+import com.jixu.app.ui.screens.common.PhotoPreviewDialog
+import com.jixu.app.ui.screens.common.PhotoThumb
 import com.jixu.app.ui.screens.common.showToast
 import com.jixu.app.ui.screens.common.todayStr
 import com.jixu.app.ui.theme.JiXuTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -82,6 +92,7 @@ private data class AddSnapshot(
     val note: String,
     val person: String,
     val date: String,
+    val photo: String,
 )
 
 private data class UndoState(val id: String, val label: String, val snapshot: AddSnapshot)
@@ -98,7 +109,8 @@ fun AddScreen(container: AppContainer) {
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val repo = container.repository
-    val records by repo.observeAliveRecords().collectAsStateWithLifecycle(emptyList())
+    val recordsFlow = remember { repo.observeAliveRecords() }
+    val records by recordsFlow.collectAsStateWithLifecycle(emptyList())
 
     var type by rememberSaveable { mutableStateOf("expense") }
     var amount by rememberSaveable { mutableStateOf("") }
@@ -107,12 +119,38 @@ fun AddScreen(container: AppContainer) {
     var subKey by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
     var person by rememberSaveable { mutableStateOf("") }
+    var photo by rememberSaveable { mutableStateOf("") }
     var autoDate by rememberSaveable { mutableStateOf(todayStr()) }
     var cats by remember { mutableStateOf<List<CategoryGroup>>(emptyList()) }
     var catMenuOpen by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var undo by remember { mutableStateOf<UndoState?>(null) }
     var undoRemain by remember { mutableIntStateOf(5) }
+    var cameraFile by remember { mutableStateOf<File?>(null) }
+    var showPhotoSheet by remember { mutableStateOf(false) }
+    var photoPreview by remember { mutableStateOf(false) }
+
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val file = cameraFile
+        cameraFile = null
+        if (ok && file != null) {
+            scope.launch {
+                val saved = runCatching { container.photos.saveFromUri(Uri.fromFile(file)) }.getOrNull()
+                file.delete()
+                if (saved != null) photo = saved else context.showToast("照片保存失败")
+            }
+        } else {
+            file?.delete()
+        }
+    }
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val saved = runCatching { container.photos.saveFromUri(uri) }.getOrNull()
+                if (saved != null) photo = saved else context.showToast("照片保存失败")
+            }
+        }
+    }
 
     val focusRequester = remember { FocusRequester() }
 
@@ -201,7 +239,7 @@ fun AddScreen(container: AppContainer) {
             context.showToast("请选择子分类")
             return
         }
-        val snapshot = AddSnapshot(type, parsed.value, catKey, subKey, note, person.trim(), date)
+        val snapshot = AddSnapshot(type, parsed.value, catKey, subKey, note, person.trim(), date, photo)
         scope.launch {
             val id = repo.addRecord(
                 NewRecord(
@@ -214,6 +252,7 @@ fun AddScreen(container: AppContainer) {
                     note = note,
                     date = date,
                     person = person.trim(),
+                    photo = photo.ifEmpty { null },
                 ),
             )
             val t = todayStr()
@@ -224,6 +263,7 @@ fun AddScreen(container: AppContainer) {
             subKey = ""
             note = ""
             person = ""
+            photo = ""
             date = t
             undoRemain = 5
             undo = UndoState(id, "${if (type == "income") "收入" else "支出"} ¥${com.jixu.app.core.formatMoneyExact(parsed.value)}", snapshot)
@@ -243,6 +283,7 @@ fun AddScreen(container: AppContainer) {
             note = s.note
             person = s.person
             date = s.date
+            photo = s.photo
             focusManager.clearFocus()
             context.showToast("已撤销，可改后重记")
         }
@@ -441,6 +482,39 @@ fun AddScreen(container: AppContainer) {
 
             Spacer(Modifier.height(10.dp))
 
+            // ===== 小票照片（可选，只存本机，§12） =====
+            JxCard {
+                JxLabel("小票照片（可选，只存本机）")
+                Spacer(Modifier.height(8.dp))
+                if (photo.isNotEmpty()) {
+                    Box {
+                        PhotoThumb(
+                            path = photo,
+                            onClick = { photoPreview = true },
+                            size = 72,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(Color(0x99000000))
+                                .clickable {
+                                    val old = photo
+                                    photo = ""
+                                    scope.launch { container.photos.delete(old) }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        ) {
+                            Text("×", fontSize = 12.sp, color = Color.White)
+                        }
+                    }
+                } else {
+                    JxSmallAction("拍小票 / 选照片", onClick = { showPhotoSheet = true })
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
             // ===== 备注 =====
             JxCard {
                 JxLabel("备注")
@@ -525,6 +599,53 @@ fun AddScreen(container: AppContainer) {
         ) {
             DatePicker(state = pickerState)
         }
+    }
+
+    // ===== 照片来源 =====
+    if (showPhotoSheet) {
+        JxDialog(title = "小票照片", onDismiss = { showPhotoSheet = false }) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        showPhotoSheet = false
+                        val file = container.photos.newCameraFile()
+                        cameraFile = file
+                        runCatching { takePicture.launch(container.photos.uriFor(file)) }
+                            .onFailure {
+                                cameraFile = null
+                                file.delete()
+                                context.showToast("照片保存失败")
+                            }
+                    }
+                    .padding(vertical = 14.dp),
+            ) {
+                Text("拍小票", fontSize = 15.sp, color = colors.text)
+            }
+            JxDivider()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        showPhotoSheet = false
+                        runCatching {
+                            pickPhoto.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        }.onFailure { context.showToast("照片保存失败") }
+                    }
+                    .padding(vertical = 14.dp),
+            ) {
+                Text("选照片", fontSize = 15.sp, color = colors.text)
+            }
+        }
+    }
+
+    // ===== 小票大图 =====
+    if (photoPreview && photo.isNotEmpty()) {
+        PhotoPreviewDialog(path = photo, onDismiss = { photoPreview = false })
     }
 }
 

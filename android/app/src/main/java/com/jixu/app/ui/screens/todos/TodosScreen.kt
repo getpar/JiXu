@@ -1,5 +1,11 @@
 package com.jixu.app.ui.screens.todos
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +70,7 @@ import com.jixu.app.core.parseAmountInput
 import com.jixu.app.core.sanitizeAmountInput
 import com.jixu.app.data.NewTodo
 import com.jixu.app.data.db.TodoEntity
+import com.jixu.app.notify.ReminderScheduler
 import com.jixu.app.ui.screens.common.JxCard
 import com.jixu.app.ui.screens.common.JxConfirmDialog
 import com.jixu.app.ui.screens.common.JxDialog
@@ -114,8 +122,10 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repo = container.repository
 
-    val todos by repo.observeTodos().collectAsStateWithLifecycle(emptyList())
-    val cats by repo.observeMergedCategories().collectAsStateWithLifecycle(DEFAULT_CATEGORIES)
+    val todosFlow = remember { repo.observeTodos() }
+    val catsFlow = remember { repo.observeMergedCategories() }
+    val todos by todosFlow.collectAsStateWithLifecycle(emptyList())
+    val cats by catsFlow.collectAsStateWithLifecycle(DEFAULT_CATEGORIES)
 
     var today by remember { mutableStateOf(todayStr()) }
     var showAdd by remember { mutableStateOf(false) }
@@ -270,6 +280,8 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
                 }
                 Spacer(Modifier.height(10.dp))
             }
+
+            ReminderStatusCard(container)
 
             JxPrimaryButton("+ 添加待办", onClick = {
                 resetForm()
@@ -524,6 +536,81 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
             },
         )
     }
+}
+
+@Composable
+private fun ReminderStatusCard(container: AppContainer) {
+    val colors = JiXuTheme.colors
+    val context = LocalContext.current
+    var notificationsEnabled by remember { mutableStateOf(ReminderScheduler.notificationsEnabled(context)) }
+    var exactAllowed by remember { mutableStateOf(ReminderScheduler.canScheduleExact(context)) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notificationsEnabled = ReminderScheduler.notificationsEnabled(context)
+        if (granted) {
+            container.reminders.rescheduleSoon()
+        } else {
+            context.showToast("未开启通知权限，到期提醒无法显示")
+        }
+    }
+
+    // 从系统设置返回后刷新状态（重排由 MainActivity.onResume 统一触发）
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        notificationsEnabled = ReminderScheduler.notificationsEnabled(context)
+        exactAllowed = ReminderScheduler.canScheduleExact(context)
+    }
+
+    fun openSystem(intent: Intent) {
+        runCatching {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    JxCard {
+        Text("到期提醒", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.text)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (notificationsEnabled) {
+                "到期提醒已开启 · 每天 08:00 和设定时间提醒你"
+            } else {
+                "开启后，每天 08:00 汇总到期待办，设了具体时间的待办到点提醒"
+            },
+            fontSize = 12.sp,
+            color = colors.sub,
+        )
+        if (!notificationsEnabled) {
+            Spacer(Modifier.height(6.dp))
+            JxLink("开启到期提醒", onClick = {
+                val needsRuntimePermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) != PackageManager.PERMISSION_GRANTED
+                if (needsRuntimePermission) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    // 权限已被用户拒绝过/通知被系统关闭：只能去系统设置里打开
+                    openSystem(ReminderScheduler.openNotificationSettingsIntent(context))
+                }
+            })
+        }
+        if (notificationsEnabled && !exactAllowed) {
+            Spacer(Modifier.height(6.dp))
+            JxLink("提醒可能延迟，点这里允许准时提醒", onClick = {
+                openSystem(ReminderScheduler.openExactAlarmSettingsIntent(context))
+            })
+        }
+        Spacer(Modifier.height(6.dp))
+        JxLink(
+            "部分手机需允许后台运行才能准时提醒",
+            onClick = { openSystem(ReminderScheduler.openAppDetailsIntent(context)) },
+            color = colors.sub,
+            size = 12.sp,
+        )
+    }
+    Spacer(Modifier.height(10.dp))
 }
 
 @Composable

@@ -63,7 +63,8 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repo = container.repository
 
-    val customRows by repo.observeCustomCategories().collectAsStateWithLifecycle(emptyList())
+    val customFlow = remember { repo.observeCustomCategories() }
+    val customRows by customFlow.collectAsStateWithLifecycle(emptyList())
     val cats = remember(customRows) {
         mergedCategories(
             customRows.map { CustomCategory(it.categoryKey, it.categoryName, it.subcategoryKey, it.subcategoryName) },

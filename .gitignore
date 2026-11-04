@@ -40,3 +40,6 @@ desktop.ini
 
 # ===== AI 工作区数据（本地笔记/记忆，无需上传） =====
 .workbuddy-ai/
+
+# ===== 微信开发者工具个人设置（每台机器不同，按官方模板不入库） =====
+miniapp/project.private.config.json

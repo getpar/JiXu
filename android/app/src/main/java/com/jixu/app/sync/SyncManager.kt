@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 本地写完后的推送入口（Repository → SyncManager） */
 fun interface SyncTrigger {
@@ -58,6 +59,20 @@ class SyncManager(
         // 跑在应用级 scope：调用方取消（页面退出）不会打断同步
         scope.launch { drain(first) }
         return first.await()
+    }
+
+    /**
+     * 清除数据前调用：等当前/排队的同步都结束，避免刚清完又被在途同步把旧账写回（§7.9）。
+     * 超时（网络卡住）也放行，界面不能无限等。
+     */
+    suspend fun awaitQuiescent(timeoutMs: Long = 10_000) {
+        val deadline = clock() + timeoutMs
+        while (true) {
+            val pending = lock.withLock { running ?: queued } ?: return
+            val left = deadline - clock()
+            if (left <= 0) return
+            withTimeoutOrNull(left) { pending.await() } ?: return
+        }
     }
 
     /** 连续跑：每一趟结束后若期间有人请求强制同步，就再补跑一趟（合并）。 */

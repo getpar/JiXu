@@ -9,11 +9,12 @@ import com.jixu.app.cloud.HttpTransport
 import com.jixu.app.cloud.OkHttpTransport
 import com.jixu.app.core.isValidOwnerId
 import com.jixu.app.core.newOwnerId
-import com.jixu.app.data.PhotoStore
 import com.jixu.app.data.PrefsKeys
 import com.jixu.app.data.PrefsStore
 import com.jixu.app.data.Repository
 import com.jixu.app.data.db.AppDatabase
+import com.jixu.app.notify.ReminderScheduler
+import com.jixu.app.photo.AndroidPhotoStore
 import com.jixu.app.sync.EntitySyncSpec
 import com.jixu.app.sync.KVStore
 import com.jixu.app.sync.SyncDeps
@@ -36,12 +37,21 @@ class AppContainer(context: Context) {
     /** 应用级协程作用域：同步不随界面销毁而中断 */
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    val store: KVStore = PrefsStore(appContext)
+    val prefs: PrefsStore = PrefsStore(appContext)
+
+    val store: KVStore = prefs
 
     val db: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME).build()
 
-    /** 照片文件操作在 P7 接入真实实现 */
-    val photos: PhotoStore = PhotoStore.Noop
+    /** 小票照片：拍照/相册落盘、压缩、删除（§12） */
+    val photos: AndroidPhotoStore = AndroidPhotoStore(appContext)
+
+    /** 到期提醒：直接读 Room，避免与 Repository 构造顺序耦合（§10） */
+    val reminders: ReminderScheduler = ReminderScheduler(
+        context = appContext,
+        scope = scope,
+        todosProvider = { db.todos().getAll() },
+    )
 
     val transport: HttpTransport = OkHttpTransport()
 
@@ -65,6 +75,7 @@ class AppContainer(context: Context) {
                 syncRef?.pushSoon()
             }
         },
+        reminders = reminders,
     )
 
     val syncManager: SyncManager = SyncManager(

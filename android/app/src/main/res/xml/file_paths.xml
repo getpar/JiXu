@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 路径（§11 导出分享、§12 相机临时文件） -->
+<paths>
+    <cache-path name="exports" path="exports/" />
+    <cache-path name="camera" path="camera/" />
+    <files-path name="photos" path="photos/" />
+</paths>

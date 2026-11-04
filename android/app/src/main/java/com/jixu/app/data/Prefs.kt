@@ -5,7 +5,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.jixu.app.sync.KVStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 /**
  * DataStore 键值存储（开发文档 §4.2）。所有键名与小程序同名；安卓新增 auth_* 系列。
@@ -21,6 +23,10 @@ class PrefsStore(private val context: Context) : KVStore {
     override suspend fun set(key: String, value: String) {
         context.dataStore.edit { it[stringPreferencesKey(key)] = value }
     }
+
+    /** 观察单个键（外观偏好即时生效用；null = 未设置） */
+    fun observeString(key: String): Flow<String?> =
+        context.dataStore.data.map { it[stringPreferencesKey(key)] }
 
     override suspend fun remove(key: String) {
         context.dataStore.edit { it.remove(stringPreferencesKey(key)) }

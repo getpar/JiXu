@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -113,10 +115,15 @@ fun JxChip(
 }
 
 @Composable
-fun JxTag(text: String, fg: Color = JiXuTheme.colors.accent, bg: Color = JiXuTheme.colors.accentSoft) {
+fun JxTag(
+    text: String,
+    fg: Color = JiXuTheme.colors.accent,
+    bg: Color = JiXuTheme.colors.accentSoft,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = text,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(4.dp))
             .background(bg)
             .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -164,11 +171,14 @@ fun JxDialog(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = JiXuTheme.colors
+    // 内容超长（如云同步展开高级设置 + 键盘）时必须限高，否则 verticalScroll 没有视口可滚，底部按钮会跑到屏幕外
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .widthIn(max = 560.dp)
+                .heightIn(max = maxHeight)
                 .clip(RoundedCornerShape(12.dp))
                 .background(colors.card)
                 .imePadding()

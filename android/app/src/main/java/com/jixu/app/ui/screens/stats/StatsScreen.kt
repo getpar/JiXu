@@ -89,7 +89,8 @@ fun StatsScreen(
 ) {
     val colors = JiXuTheme.colors
     val repo = container.repository
-    val records by repo.observeAliveRecords().collectAsStateWithLifecycle(emptyList())
+    val recordsFlow = remember { repo.observeAliveRecords() }
+    val records by recordsFlow.collectAsStateWithLifecycle(emptyList())
 
     var month by rememberSaveable { mutableStateOf(currentMonth()) }
     var monthOpen by remember { mutableStateOf(false) }

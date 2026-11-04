@@ -55,8 +55,10 @@ import com.jixu.app.core.sumAmounts
 import com.jixu.app.data.DueSummary
 import com.jixu.app.data.PrefsKeys
 import com.jixu.app.data.db.RecordEntity
+import com.jixu.app.ui.screens.cloud.CloudSyncDialog
 import com.jixu.app.ui.screens.common.JxAmount
 import com.jixu.app.ui.screens.common.JxCard
+import com.jixu.app.ui.screens.common.JxConfirmDialog
 import com.jixu.app.ui.screens.common.JxDialog
 import com.jixu.app.ui.screens.common.JxDivider
 import com.jixu.app.ui.screens.common.JxEmpty
@@ -65,6 +67,7 @@ import com.jixu.app.ui.screens.common.JxLink
 import com.jixu.app.ui.screens.common.JxSectionTitle
 import com.jixu.app.ui.screens.common.JxTextField
 import com.jixu.app.ui.screens.common.JxTitle
+import com.jixu.app.ui.screens.common.PhotoPreviewDialog
 import com.jixu.app.ui.screens.common.currentMonth
 import com.jixu.app.ui.screens.common.monthOptions
 import com.jixu.app.ui.screens.common.showToast
@@ -93,7 +96,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repo = container.repository
-    val records by repo.observeAliveRecords().collectAsStateWithLifecycle(emptyList())
+    val recordsFlow = remember { repo.observeAliveRecords() }
+    val records by recordsFlow.collectAsStateWithLifecycle(emptyList())
 
     var month by rememberSaveable { mutableStateOf(currentMonth()) }
     var monthOpen by remember { mutableStateOf(false) }
@@ -104,6 +108,10 @@ fun HomeScreen(
     var themePref by remember { mutableStateOf("system") }
     var dueInfo by remember { mutableStateOf(DueSummary(0, 0)) }
     var debugBusy by remember { mutableStateOf(false) }
+    var showTheme by remember { mutableStateOf(false) }
+    var showCloud by remember { mutableStateOf(false) }
+    var showClear by remember { mutableStateOf(false) }
+    var photoPreview by remember { mutableStateOf<String?>(null) }
 
     val dark = isSystemInDarkTheme()
     // 编译期常量：release 包里 R8 直接裁掉整个调试入口
@@ -449,7 +457,12 @@ fun HomeScreen(
                                 )
                                 if (!r.photo.isNullOrEmpty()) {
                                     Spacer(Modifier.width(6.dp))
-                                    Text("凭证", fontSize = 11.sp, color = colors.accent2)
+                                    Text(
+                                        "凭证",
+                                        fontSize = 11.sp,
+                                        color = colors.accent2,
+                                        modifier = Modifier.clickable { photoPreview = r.photo },
+                                    )
                                 }
                             }
                         }
@@ -466,7 +479,7 @@ fun HomeScreen(
             "dark" -> "始终深色"
             else -> "跟随系统"
         }
-        JxCard(onClick = { context.showToast("外观切换将在 P7 阶段实现") }) {
+        JxCard(onClick = { showTheme = true }) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Text(
                     "外观 · $prefLabel" + if (themePref == "system" && dark) "（当前深色）" else "",
@@ -476,7 +489,7 @@ fun HomeScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
-        JxCard(onClick = { context.showToast("云同步设置将在 P7 阶段实现") }) {
+        JxCard(onClick = { showCloud = true }) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Text(
                     "云同步 · 同步码：" + formatOwnerId(ownerId).ifEmpty { "--------" },
@@ -486,7 +499,7 @@ fun HomeScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
-        JxCard(onClick = { context.showToast("清除数据将在 P7 阶段实现") }) {
+        JxCard(onClick = { showClear = true }) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Text("清除所有数据", fontSize = 13.sp, color = colors.sub)
             }
@@ -543,12 +556,90 @@ fun HomeScreen(
             Spacer(Modifier.height(10.dp))
             JxDivider()
             Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Spacer(Modifier.weight(1f))
                 JxLink("取消", onClick = { showBudget = false }, color = colors.sub, size = 14.sp)
                 JxLink("保存", onClick = { saveBudget() }, size = 14.sp)
             }
         }
+    }
+
+    // ===== 外观三态（§9） =====
+    if (showTheme) {
+        JxDialog(title = "外观", onDismiss = { showTheme = false }) {
+            listOf(
+                "system" to "跟随系统",
+                "light" to "始终浅色",
+                "dark" to "始终深色",
+            ).forEach { (key, label) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            scope.launch {
+                                runCatching { container.store.set(PrefsKeys.UI_THEME_PREF, key) }
+                                themePref = key
+                                showTheme = false
+                            }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        label,
+                        fontSize = 15.sp,
+                        color = if (themePref == key) colors.accent else colors.text,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (themePref == key) Text("✓", fontSize = 14.sp, color = colors.accent)
+                }
+            }
+        }
+    }
+
+    // ===== 清除本机所有数据（§7.9） =====
+    if (showClear) {
+        JxConfirmDialog(
+            title = "清除本机所有数据？",
+            message = "将清空本机的账单、待办、周期账单、预算、自定义分类和小票照片，并换一个新同步码。" +
+                "云端账本不会删除，记下原同步码 ${formatOwnerId(ownerId)}，以后在「云同步」里加入即可找回",
+            confirmText = "清除",
+            confirmColor = colors.exp,
+            onConfirm = {
+                showClear = false
+                scope.launch {
+                    // 等在途/排队的同步结束再清，避免旧账被写回（§7.9）
+                    runCatching { container.syncManager.awaitQuiescent() }
+                    runCatching { repo.clearAllLocalData() }
+                    budget = 0.0
+                    dueInfo = DueSummary(0, 0)
+                    onDueCount(0)
+                    themePref = "system"
+                    // 清除后换新同步码（旧码已清掉，ownerId() 自动生成新码）
+                    ownerId = runCatching { container.ownerId() }.getOrDefault("")
+                }
+            },
+            onDismiss = { showClear = false },
+        )
+    }
+
+    // ===== 云同步弹窗（§8.8） =====
+    if (showCloud) {
+        CloudSyncDialog(
+            container = container,
+            onDismiss = { showCloud = false },
+            onOwnerChanged = { ownerId = it },
+        )
+    }
+
+    // ===== 小票大图（§12） =====
+    photoPreview?.let { path ->
+        PhotoPreviewDialog(path = path, onDismiss = { photoPreview = null })
     }
 }
 

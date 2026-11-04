@@ -20,6 +20,7 @@ import com.jixu.app.data.db.PendingPurgeEntity
 import com.jixu.app.data.db.RecordEntity
 import com.jixu.app.data.db.RecurringBillEntity
 import com.jixu.app.data.db.TodoEntity
+import com.jixu.app.notify.ReminderUpdates
 import com.jixu.app.sync.KVStore
 import com.jixu.app.sync.PendingPurge
 import com.jixu.app.sync.PurgeQueue
@@ -112,6 +113,7 @@ class Repository(
     private val store: KVStore,
     private val photos: PhotoStore = PhotoStore.Noop,
     private val sync: SyncTrigger? = null,
+    private val reminders: ReminderUpdates = ReminderUpdates.Noop,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val today: () -> String = { localDateStr() },
 ) : PurgeQueue {
@@ -476,6 +478,7 @@ class Repository(
             )
         }
         pushSoon()
+        reminders.rescheduleSoon()
     }
 
     suspend fun deleteTodo(id: String) {
@@ -484,6 +487,7 @@ class Repository(
             db.todos().upsert(todo.copy(deleted = 1, updatedAt = clock()))
         }
         pushSoon()
+        reminders.rescheduleSoon()
     }
 
     suspend fun toggleTodo(id: String, active: Boolean) {
@@ -492,6 +496,7 @@ class Repository(
             db.todos().upsert(todo.copy(isActive = active, updatedAt = clock()))
         }
         pushSoon()
+        reminders.rescheduleSoon()
     }
 
     /** 完成待办：今天已完成过则忽略；有关联金额则自动记一笔支出（§7.2） */
@@ -543,7 +548,10 @@ class Repository(
             )
             true
         }
-        if (changed) pushSoon()
+        if (changed) {
+            pushSoon()
+            reminders.rescheduleSoon()
+        }
     }
 
     suspend fun getDueSummary(): DueSummary {
@@ -570,6 +578,7 @@ class Repository(
         store.clear()
         photos.clearAll()
         lastLocalId.set(0)
+        reminders.cancelAll()
     }
 
     // ==================== 同步适配器（§6.5） ====================
@@ -706,6 +715,8 @@ class Repository(
             changed++
         }
         changed
+    }.also {
+        if (it > 0) reminders.rescheduleSoon()
     }
 
     suspend fun getAllRecurringBills(): List<JsonObject> = db.recurringBills().getAll().map { it.toSnapshotJson() }

@@ -95,8 +95,10 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repo = container.repository
 
-    val bills by repo.observeRecurringBills().collectAsStateWithLifecycle(emptyList())
-    val cats by repo.observeMergedCategories().collectAsStateWithLifecycle(DEFAULT_CATEGORIES)
+    val billsFlow = remember { repo.observeRecurringBills() }
+    val catsFlow = remember { repo.observeMergedCategories() }
+    val bills by billsFlow.collectAsStateWithLifecycle(emptyList())
+    val cats by catsFlow.collectAsStateWithLifecycle(DEFAULT_CATEGORIES)
 
     var showAdd by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
