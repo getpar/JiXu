@@ -3,14 +3,13 @@ node_modules/
 
 # ===== 构建产物（编译后生成的，不需要上传） =====
 dist/
-release/
-release_new/
-release_build/
+release*/
 out/
 
 # ===== 本地临时/遗留目录 =====
 .installers/
 .staging-survivor/
+.dsh-vision-router/
 
 # ===== 环境配置文件（可能含敏感信息） =====
 .env
@@ -43,3 +42,11 @@ desktop.ini
 
 # ===== 微信开发者工具个人设置（每台机器不同，按官方模板不入库） =====
 miniapp/project.private.config.json
+miniapp/_preview/
+.alma-snapshots
+
+# ===== 调试截图 / uiautomator dump / 录屏（只在根目录，源码里的图片不受影响） =====
+/*.png
+/*.xml
+/*.mp4
+/design-demos/_shots/
