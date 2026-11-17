@@ -1,36 +1,39 @@
-import { formatMoneyExact } from '../utils/money'
 import { useState, useEffect, useMemo } from 'react'
-import { Card, Table, Tag, Button, Modal, Form, InputNumber, Select, Input, DatePicker, TimePicker, Switch, Typography, Popconfirm, message, Space, Alert, Collapse } from 'antd'
-import { PlusOutlined, DeleteOutlined, CheckOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { Modal, Form, InputNumber, Select, Input, DatePicker, TimePicker, Popconfirm, message } from 'antd'
 import dayjs from 'dayjs'
+import { Mod, Icon, CatIcon, F, dateLabel, todayStr, p2 } from '../components/ui'
 import type { TodoItem } from '../types/electron'
 
-const { Text } = Typography
+interface CategoryGroup {
+  category_key: string
+  category_name: string
+  subcategories: { subcategory_key: string; subcategory_name: string }[]
+}
 
-interface CategoryGroup { category_key: string; category_name: string; subcategories: { subcategory_key: string; subcategory_name: string }[] }
-
-const cycleMeta: Record<string, { label: string; emoji: string; color: string }> = {
-  daily: { label: '每天', emoji: '☀️', color: 'blue' },
-  weekly: { label: '每周', emoji: '📆', color: 'purple' },
-  monthly: { label: '每月', emoji: '📅', color: 'orange' },
-  yearly: { label: '每年', emoji: '🎯', color: 'cyan' },
-  once: { label: '单次', emoji: '📍', color: 'default' },
+const CYCLE: Record<string, string> = {
+  daily: '每天',
+  weekly: '每周',
+  monthly: '每月',
+  yearly: '每年',
+  once: '单次',
 }
 
 function TodosPage(): JSX.Element {
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [modalOpen, setModalOpen] = useState(false)
+  const [showDone, setShowDone] = useState(false)
   const [categories, setCategories] = useState<CategoryGroup[]>([])
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [form] = Form.useForm()
 
   useEffect(() => {
-      loadData(); loadCategories()
-      // v0.7.3 云同步应用了云端待办快照后自动刷新列表
-      const onEntitySynced = () => { loadData() }
-      window.addEventListener('entity-synced', onEntitySynced)
-      return () => window.removeEventListener('entity-synced', onEntitySynced)
-    }, [])
+    loadData()
+    loadCategories()
+    // v0.7.3 云同步应用了云端待办快照后自动刷新列表
+    const onEntitySynced = (): void => { loadData() }
+    window.addEventListener('entity-synced', onEntitySynced)
+    return () => window.removeEventListener('entity-synced', onEntitySynced)
+  }, [])
 
   async function loadData(): Promise<void> {
     setTodos(await window.electronAPI.getTodos())
@@ -39,9 +42,9 @@ function TodosPage(): JSX.Element {
   async function loadCategories(): Promise<void> {
     const raw = await window.electronAPI.getCategories()
     const grouped: Record<string, CategoryGroup> = {}
-    for (const cat of raw) {
-      if (!grouped[cat.category_key]) grouped[cat.category_key] = { category_key: cat.category_key, category_name: cat.category_name, subcategories: [] }
-      grouped[cat.category_key].subcategories.push({ subcategory_key: cat.subcategory_key, subcategory_name: cat.subcategory_name })
+    for (const c of raw) {
+      if (!grouped[c.category_key]) grouped[c.category_key] = { category_key: c.category_key, category_name: c.category_name, subcategories: [] }
+      grouped[c.category_key].subcategories.push({ subcategory_key: c.subcategory_key, subcategory_name: c.subcategory_name })
     }
     setCategories(Object.values(grouped))
   }
@@ -50,7 +53,8 @@ function TodosPage(): JSX.Element {
     const v = await form.validateFields()
     const amount = v.amount || 0
     await window.electronAPI.addTodo({
-      title: v.title.trim(), cycle: v.cycle,
+      title: v.title.trim(),
+      cycle: v.cycle,
       next_date: v.next_date.format('YYYY-MM-DD'),
       time: v.time ? v.time.format('HH:mm') : '',
       amount: amount > 0 ? amount : 0,
@@ -59,13 +63,15 @@ function TodosPage(): JSX.Element {
       note: v.note || '',
     })
     message.success('待办已添加')
-    setModalOpen(false); form.resetFields(); loadData()
+    setModalOpen(false)
+    form.resetFields()
+    loadData()
   }
 
   async function handleComplete(todo: TodoItem): Promise<void> {
     const res = await window.electronAPI.completeTodo(todo.id)
     if (res.success) {
-      message.success(res.recorded ? `已完成，自动记账 ¥${formatMoneyExact(res.recorded.amount)}` : '已完成')
+      message.success(res.recorded ? `已完成，自动记账 ¥${F(res.recorded.amount)}` : '已完成')
       loadData()
     } else {
       message.error(res.error || '操作失败')
@@ -79,183 +85,190 @@ function TodosPage(): JSX.Element {
 
   async function handleDelete(id: number): Promise<void> {
     await window.electronAPI.deleteTodo(id)
-    message.success('已删除'); loadData()
+    message.success('已删除')
+    loadData()
   }
 
-  const today = dayjs().format('YYYY-MM-DD')
-  // 进行中：启用且（非单次 或 单次未完成）
+  const today = todayStr()
   const activeTodos = useMemo(() => todos.filter((t) => {
     if (!t.is_active) return false
     if (t.cycle === 'once' && t.completed_dates.length > 0) return false
     return true
   }), [todos])
-  // 已完成区：停用的 + 单次已完成的（与小程序端一致）
   const doneTodos = useMemo(() => todos.filter((t) => !activeTodos.includes(t)), [todos, activeTodos])
   const dueToday = activeTodos.filter((t) => t.next_date <= today)
+  const sorted = activeTodos.slice().sort((a, b) => a.next_date.localeCompare(b.next_date))
 
-  const subs = selectedCat ? categories.find(c => c.category_key === selectedCat)?.subcategories.map(s => ({ value: s.subcategory_key, label: s.subcategory_name })) || [] : []
-
-  const columns = [
-    {
-      title: '周期', dataIndex: 'cycle', key: 'cycle', width: 90,
-      render: (c: string) => {
-        const m = cycleMeta[c] || { label: c, emoji: '', color: 'default' }
-        return <Tag color={m.color} style={{ borderRadius: 6 }}>{m.emoji} {m.label}</Tag>
-      },
-    },
-    {
-      title: '到期日', key: 'due', width: 150,
-      render: (_: any, r: TodoItem) => {
-        const overdue = r.next_date < today
-        return (
-          <Space size={4}>
-            <Text style={{ fontVariantNumeric: 'tabular-nums' }}>{r.next_date.slice(5)}</Text>
-            {r.time && <Text type="secondary" style={{ fontSize: 12 }}><ClockCircleOutlined /> {r.time}</Text>}
-            {overdue && <Tag color="error" style={{ borderRadius: 6 }}>已过期</Tag>}
-          </Space>
-        )
-      },
-    },
-    {
-      title: '待办事项', dataIndex: 'title', key: 'title',
-      render: (t: string, r: TodoItem) => (
-        <Space size={6}>
-          <Text strong style={{ fontSize: 15 }}>{t}</Text>
-          {r.note && <Text type="secondary" style={{ fontSize: 12 }}>· {r.note}</Text>}
-        </Space>
-      ),
-    },
-    {
-      title: '关联金额', key: 'amount', width: 190,
-      render: (_: any, r: TodoItem) => r.amount > 0 ? (
-        <Space size={4}>
-          <Text style={{ fontWeight: 700, color: '#FF6B35' }}>¥{formatMoneyExact(r.amount)}</Text>
-          {r.category_name && <Tag color="orange" style={{ borderRadius: 6 }}>{r.category_name}</Tag>}
-          {r.subcategory_name && <Tag style={{ borderRadius: 6 }}>{r.subcategory_name}</Tag>}
-        </Space>
-      ) : <Text type="secondary">-</Text>,
-    },
-    {
-      title: '启用', key: 'active', width: 60,
-      render: (_: any, r: TodoItem) => <Switch size="small" checked={!!r.is_active} onChange={v => handleToggle(r.id, v)} />,
-    },
-    {
-      title: '操作', key: 'act', width: 170,
-      render: (_: any, r: TodoItem) => (
-        <Space size={0}>
-          <Button type="link" size="small" icon={<CheckOutlined />} onClick={() => handleComplete(r)} style={{ color: '#10B981', fontWeight: 600 }}>
-            {r.amount > 0 ? '完成并记账' : '完成'}
-          </Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)}>
-            <Button type="link" danger size="small" icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
+  const subs = selectedCat ? categories.find((c) => c.category_key === selectedCat)?.subcategories.map((s) => ({ value: s.subcategory_key, label: s.subcategory_name })) || [] : []
 
   return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <Text type="secondary" style={{ fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          待办事项
-        </Text>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#1E293B' }}>🔔 重复待办</div>
-      </div>
-
+    <>
       {dueToday.length > 0 && (
-        <Alert
-          type="warning" showIcon style={{ marginBottom: 16, borderRadius: 10 }}
-          message={`今天有 ${dueToday.length} 个待办到期：${dueToday.map((t) => t.title).join('、')}`}
-        />
+        <Mod className="mb8">
+          <div className="pace warn">
+            <i className="led amb" />
+            <span>
+              今天有 <b>{dueToday.length}</b> 个待办到期
+            </span>
+            <span className="num">{dueToday.map((t) => t.title).join(' · ')}</span>
+          </div>
+        </Mod>
       )}
 
-      <div style={{ marginBottom: 20 }}>
-        <Space direction="vertical" size={8}>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => { setModalOpen(true); setSelectedCat(null); form.resetFields() }}
-            style={{ borderRadius: 10, height: 40 }}
-          >
+      <Mod
+        id="P-02"
+        className="mb8"
+        title="待办事项"
+        en={`TODO · ${activeTodos.length} OPEN`}
+        right={
+          <button className="mini ac" onClick={() => { setModalOpen(true); setSelectedCat(null); form.resetFields() }}>
+            <Icon n="add" cls="s" />
             添加待办
-          </Button>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            每天喝水、每月交话费…填了关联金额的待办，点"完成"时会自动记一笔账
-          </Text>
-        </Space>
-      </div>
-
-      <Card>
-        <Table columns={columns} dataSource={activeTodos} rowKey="id" pagination={false} size="middle"
-          locale={{ emptyText: '暂无进行中的待办，点上面按钮添加一个' }} />
-      </Card>
+          </button>
+        }
+      >
+        {sorted.length === 0 && (
+          <div className="nosig">
+            <b>暂无进行中的待办</b>
+            <p>每天喝水、每月交话费…填了关联金额的待办，点「完成」时会自动记一笔账。</p>
+          </div>
+        )}
+        {sorted.map((t) => {
+          const overdue = t.next_date < today
+          const isToday = t.next_date === today
+          return (
+            <div className="td" key={t.id}>
+              <button className="cbtn" onClick={() => handleComplete(t)} role="checkbox" aria-checked={false} aria-label={`完成 ${t.title}`}>
+                <span className="chk">
+                  <Icon n="ok" cls="s" />
+                </span>
+              </button>
+              <div className="tt">
+                <b>{t.title}</b>
+                <span>
+                  {overdue ? (
+                    <span className="tag cor">已逾期</span>
+                  ) : isToday ? (
+                    <span className="tag amb">今天{t.time ? ` ${t.time}` : ''}</span>
+                  ) : (
+                    <span className="tag">{dateLabel(t.next_date)}</span>
+                  )}
+                  {CYCLE[t.cycle] || t.cycle}
+                  {t.note ? ` · ${t.note}` : ''}
+                </span>
+              </div>
+              <div className="r">
+                {t.amount > 0 && (
+                  <>
+                    <span className="num">¥{F(t.amount)}</span>
+                    {t.category_name && <span className="tag">{t.category_name}</span>}
+                    <button className="mini" onClick={() => handleComplete(t)}>完成并记账</button>
+                  </>
+                )}
+                {t.amount === 0 && (
+                  <button className="mini" onClick={() => handleComplete(t)}>完成</button>
+                )}
+                <button
+                  className={`tg${t.is_active ? ' on' : ''}`}
+                  onClick={() => handleToggle(t.id, !t.is_active)}
+                  role="switch"
+                  aria-checked={!!t.is_active}
+                  aria-label={`启用 ${t.title}`}
+                />
+                <Popconfirm title="确定删除？" onConfirm={() => handleDelete(t.id)}>
+                  <button className="ib del" aria-label="删除">
+                    <Icon n="trash" cls="s" />
+                  </button>
+                </Popconfirm>
+              </div>
+            </div>
+          )
+        })}
+      </Mod>
 
       {doneTodos.length > 0 && (
-        <Collapse
-          ghost style={{ marginTop: 16 }}
-          items={[{
-            key: 'done',
-            label: <Text type="secondary">✅ 已完成 / 已停用（{doneTodos.length}）</Text>,
-            children: doneTodos.map((t) => {
-              const m = cycleMeta[t.cycle] || { label: t.cycle, emoji: '' }
+        <Mod
+          title={
+            <button className="lnk" style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)' }} onClick={() => setShowDone(!showDone)}>
+              <Icon n={showDone ? 'r' : 'l'} cls="s" />
+              已完成 / 已停用（{doneTodos.length}）
+            </button>
+          }
+          en="ARCHIVE"
+        >
+          {showDone &&
+            doneTodos.map((t) => {
               const last = t.completed_dates.length > 0 ? t.completed_dates[t.completed_dates.length - 1] : ''
               return (
-                <div key={t.id} style={{ padding: '8px 4px', borderBottom: '1px solid #f1f5f9' }}>
-                  <Space split={<Text type="secondary">·</Text>} wrap>
-                    <Text delete type="secondary">{t.title}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{m.emoji} {m.label}</Text>
-                    {last && <Text type="secondary" style={{ fontSize: 12 }}>最后完成 {last}</Text>}
-                    {!t.is_active && <Text type="secondary" style={{ fontSize: 12 }}>已停用</Text>}
+                <div className="td done" key={t.id}>
+                  <span className="cbtn">
+                    <span className="chk on">
+                      <Icon n="ok" cls="s" />
+                    </span>
+                  </span>
+                  <div className="tt">
+                    <b>{t.title}</b>
+                    <span>
+                      {CYCLE[t.cycle] || t.cycle}
+                      {last ? ` · 最后完成 ${last}` : ''}
+                      {!t.is_active ? ' · 已停用' : ''}
+                    </span>
+                  </div>
+                  <div className="r">
+                    <button className="mini" onClick={() => handleToggle(t.id, !t.is_active)}>
+                      {t.is_active ? '停用' : '启用'}
+                    </button>
                     <Popconfirm title="确定删除？" onConfirm={() => handleDelete(t.id)}>
-                      <Button type="link" danger size="small" style={{ padding: 0, fontSize: 12 }}>删除</Button>
+                      <button className="ib del" aria-label="删除">
+                        <Icon n="trash" cls="s" />
+                      </button>
                     </Popconfirm>
-                  </Space>
+                  </div>
                 </div>
               )
-            }),
-          }]}
-        />
+            })}
+          {!showDone && <div className="empty-s">点标题展开</div>}
+        </Mod>
       )}
 
       <Modal
         title="添加待办"
         open={modalOpen}
-        onOk={handleAdd}
         onCancel={() => setModalOpen(false)}
-        okText="添加"
-        cancelText="取消"
-        width={500}
+        width={480}
+        footer={[
+          <button key="c" className="mini" style={{ marginRight: 8 }} onClick={() => setModalOpen(false)}>取消</button>,
+          <button key="a" className="mini ac" onClick={handleAdd}>添加</button>,
+        ]}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}
-          initialValues={{ cycle: 'daily', next_date: dayjs(), amount: 0 }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 8 }} initialValues={{ cycle: 'daily', next_date: dayjs(), amount: 0 }}>
           <Form.Item label="标题" name="title" rules={[{ required: true, message: '请输入标题' }]}>
-            <Input placeholder="如：交房租、晨跑、喝水 8 杯" maxLength={20} style={{ borderRadius: 10 }} />
+            <Input placeholder="如：交房租、晨跑、喝水 8 杯" maxLength={20} />
           </Form.Item>
           <Form.Item label="周期" name="cycle">
-            <Select options={Object.entries(cycleMeta).map(([k, m]) => ({ value: k, label: `${m.emoji} ${m.label}` }))} />
+            <Select options={Object.entries(CYCLE).map(([k, v]) => ({ value: k, label: v }))} />
           </Form.Item>
           <Form.Item label="下次到期日期" name="next_date" rules={[{ required: true }]}>
-            <DatePicker style={{ width: '100%', borderRadius: 10 }} allowClear={false} />
+            <DatePicker style={{ width: '100%' }} allowClear={false} />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.cycle !== cur.cycle}>
-            {({ getFieldValue }) => ['daily', 'weekly', 'once'].includes(getFieldValue('cycle')) && (
+            {({ getFieldValue }) => ['daily', 'weekly', 'once'].includes(getFieldValue('cycle') as string) && (
               <Form.Item label="具体时间（可选）" name="time">
-                <TimePicker format="HH:mm" minuteStep={5} style={{ width: '100%', borderRadius: 10 }} placeholder="不限" />
+                <TimePicker format="HH:mm" minuteStep={5} style={{ width: '100%' }} placeholder="不限" />
               </Form.Item>
             )}
           </Form.Item>
           <Form.Item label="关联金额（可选，完成时自动记账）" name="amount">
-            <InputNumber prefix="¥" min={0} precision={2} style={{ width: '100%', borderRadius: 10 }} placeholder="不填则只提醒不记账" />
+            <InputNumber prefix="¥" min={0} precision={2} style={{ width: '100%' }} placeholder="不填则只提醒不记账" />
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.amount !== cur.amount}>
-            {({ getFieldValue }) => (getFieldValue('amount') || 0) > 0 && (
+            {({ getFieldValue }) => ((getFieldValue('amount') as number) || 0) > 0 && (
               <>
                 <Form.Item label="一级分类" name="category_key" rules={[{ required: true, message: '请选择大类' }]}>
                   <Select
                     placeholder="选择大类"
-                    onChange={v => { setSelectedCat(v); form.setFieldValue('subcategory_key', undefined) }}
-                    options={categories.map(c => ({ value: c.category_key, label: c.category_name }))}
+                    onChange={(v) => { setSelectedCat(v); form.setFieldValue('subcategory_key', undefined) }}
+                    options={categories.map((c) => ({ value: c.category_key, label: c.category_name }))}
                   />
                 </Form.Item>
                 <Form.Item label="二级分类" name="subcategory_key" rules={[{ required: true, message: '请选择小类' }]}>
@@ -265,11 +278,11 @@ function TodosPage(): JSX.Element {
             )}
           </Form.Item>
           <Form.Item label="备注（可选）" name="note">
-            <Input placeholder="补充说明" maxLength={30} style={{ borderRadius: 10 }} />
+            <Input placeholder="补充说明" maxLength={30} />
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </>
   )
 }
 

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>计序 · 夜航仪表</title>
+<script>(function(){var q=/[?&]theme=(light|dark)/.exec(location.search),t=q?q[1]:(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');document.documentElement.dataset.theme=t;document.documentElement.dataset.themeSrc=q?'fixed':'auto';})();</script>
+<link rel="stylesheet" href="../shared/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <nav class="rail" aria-label="主导航">
+    <a class="logo" href="#home" aria-label="计序 首页"><b>计序</b><i></i><span>JX-26</span></a>
+    <div class="rail-g" id="railMain"></div>
+    <div class="rail-sep"><span>SYS</span></div>
+    <div class="rail-g" id="railSys"></div>
+    <div class="rail-end" id="railEnd"></div>
+  </nav>
+  <header class="bar" id="bar"></header>
+  <main class="main" id="main" tabindex="-1">
+    <section class="view" data-view="home" aria-label="首页"></section>
+    <section class="view" data-view="add" aria-label="记一笔"></section>
+    <section class="view" data-view="history" aria-label="账单"></section>
+    <section class="view" data-view="stats" aria-label="统计"></section>
+    <section class="view" data-view="more" aria-label="更多"></section>
+  </main>
+  <nav class="tabs" id="tabs" aria-label="底部导航"></nav>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="flash" id="flash" aria-hidden="true"></div>
+<script src="../shared/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

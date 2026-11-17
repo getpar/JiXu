@@ -1,12 +1,14 @@
 package com.jixu.app.ui.screens.recurring
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,17 +16,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,10 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -58,20 +54,26 @@ import com.jixu.app.core.parseAmountInput
 import com.jixu.app.core.sanitizeAmountInput
 import com.jixu.app.data.NewRecurringBill
 import com.jixu.app.data.db.RecurringBillEntity
-import com.jixu.app.ui.screens.common.JxCard
-import com.jixu.app.ui.screens.common.JxConfirmDialog
-import com.jixu.app.ui.screens.common.JxDialog
-import com.jixu.app.ui.screens.common.JxEmpty
-import com.jixu.app.ui.screens.common.JxLabel
-import com.jixu.app.ui.screens.common.JxLink
-import com.jixu.app.ui.screens.common.JxPrimaryButton
-import com.jixu.app.ui.screens.common.JxSmallAction
-import com.jixu.app.ui.screens.common.JxTag
-import com.jixu.app.ui.screens.common.JxTextField
-import com.jixu.app.ui.screens.common.JxTopBar
+import com.jixu.app.ui.screens.common.BConfirm
+import com.jixu.app.ui.screens.common.BDialog
+import com.jixu.app.ui.screens.common.BTextField
+import com.jixu.app.ui.screens.common.BTopBar
+import com.jixu.app.ui.screens.common.Chip
+import com.jixu.app.ui.screens.common.EmptyLine
+import com.jixu.app.ui.screens.common.HLine
+import com.jixu.app.ui.screens.common.MicroLabel
+import com.jixu.app.ui.screens.common.MiniButton
+import com.jixu.app.ui.screens.common.ModuleHeader
+import com.jixu.app.ui.screens.common.Panel
+import com.jixu.app.ui.screens.common.Seg
+import com.jixu.app.ui.screens.common.Toggle
+import com.jixu.app.ui.screens.common.dayName
+import com.jixu.app.ui.screens.common.mmddDot
 import com.jixu.app.ui.screens.common.showToast
 import com.jixu.app.ui.screens.common.todayStr
 import com.jixu.app.ui.theme.JiXuTheme
+import com.jixu.app.ui.theme.MonoFamily
+import com.jixu.app.ui.theme.SansFamily
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -83,13 +85,13 @@ private val CYCLE_LABELS = mapOf("daily" to "每天", "weekly" to "每周", "mon
 private fun cycleLabel(cycle: String): String = CYCLE_LABELS[cycle] ?: cycle
 
 /**
- * 周期账单（开发文档 §8.6，参照 miniapp/src/pages/recurring/index.tsx）。
- * 笔记：周期账单不在后台自动记账，仍由首页同步结束后执行（§10）。
+ * 周期账单（开发文档 §8.6）：房租、订阅等固定开销，到期一键记录。
+ * 后台不自动记账，仍由首页同步结束后执行（§10）。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
-    val colors = JiXuTheme.colors
+    val c = JiXuTheme.colors
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -110,9 +112,6 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
     var fCatKey by rememberSaveable { mutableStateOf("food") }
     var fSubKey by rememberSaveable { mutableStateOf("") }
     var fNote by rememberSaveable { mutableStateOf("") }
-    var cycleOpen by remember { mutableStateOf(false) }
-    var catOpen by remember { mutableStateOf(false) }
-    var subOpen by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
 
     val currentCat = cats.firstOrNull { it.key == fCatKey }
@@ -163,7 +162,12 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        JxTopBar(title = "周期账单", onBack = onBack)
+        BTopBar(title = "周期账单", en = "06 · CYCLE", onBack = onBack) {
+            MiniButton("+ 添加", onClick = {
+                resetForm()
+                showAdd = true
+            }, primary = true)
+        }
 
         Column(
             modifier = Modifier
@@ -173,32 +177,27 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
                 .padding(horizontal = 14.dp),
         ) {
             Spacer(Modifier.height(4.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.soft)
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
-            ) {
-                Text(
-                    "房租、订阅等固定开销，到期一键记录，不用每次手动填",
-                    fontSize = 12.sp,
-                    color = colors.sub,
-                    lineHeight = 19.sp,
-                )
+            Panel(flat = true, contentPadding = PaddingValues(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(2.dp).height(28.dp).background(c.acF))
+                    Text(
+                        "房租、订阅等固定开销，到期一键记录，不用每次手动填",
+                        style = TextStyle(fontFamily = SansFamily, fontSize = 12.sp, lineHeight = 19.sp, color = c.dim),
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            JxPrimaryButton("+ 添加周期账单", onClick = {
-                resetForm()
-                showAdd = true
-            })
             Spacer(Modifier.height(10.dp))
 
             if (bills.isEmpty()) {
-                JxEmpty("暂无周期账单")
+                Panel {
+                    ModuleHeader(id = "R-00", title = "周期账单", en = "RECURRING")
+                    EmptyLine("暂无周期账单")
+                }
             } else {
-                bills.forEach { bill ->
+                bills.forEachIndexed { index, bill ->
                     BillCard(
+                        index = index,
                         bill = bill,
                         onToggle = {
                             scope.launch { repo.toggleRecurringBill(bill.id, !bill.isActive) }
@@ -219,146 +218,119 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     if (showAdd) {
-        JxDialog(title = "添加周期账单", onDismiss = { showAdd = false }) {
-            JxLabel("类型")
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(colors.soft)
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                listOf("expense" to "支出", "income" to "收入").forEach { (key, label) ->
-                    val selected = fType == key
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(
-                                if (selected) {
-                                    if (key == "income") colors.inc else colors.exp
-                                } else {
-                                    Color.Transparent
-                                },
-                            )
-                            .clickable {
-                                fType = key
-                                focusManager.clearFocus()
-                            }
-                            .padding(vertical = 7.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            label,
-                            fontSize = 13.sp,
-                            color = if (selected) Color.White else colors.sub,
-                            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                        )
-                    }
-                }
-            }
+        BDialog(title = "添加周期账单", en = "NEW", onDismiss = { showAdd = false }) {
+            MicroLabel("类型 · TYPE", color = c.fnt)
+            Spacer(Modifier.height(6.dp))
+            Seg(
+                options = listOf("expense" to "支出", "income" to "收入"),
+                selected = fType,
+                onSelect = {
+                    fType = it
+                    focusManager.clearFocus()
+                },
+                accent = if (fType == "income") c.inc else c.acF,
+            )
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("金额")
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("金额 · AMOUNT", color = c.fnt)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("¥", fontSize = 22.sp, fontWeight = FontWeight.Medium, color = colors.accent)
+                Text("¥", style = TextStyle(fontFamily = MonoFamily, fontSize = 18.sp, color = c.dim))
                 Spacer(Modifier.width(8.dp))
-                JxTextField(
+                BTextField(
                     value = fAmount,
                     onValueChange = { fAmount = sanitizeAmountInput(it) },
                     placeholder = "输入金额",
                     maxLength = AMOUNT_INPUT_MAX_LENGTH,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     textSize = 22.sp,
+                    mono = true,
                     modifier = Modifier.weight(1f),
                 )
             }
+            HLine(Modifier.padding(top = 6.dp))
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("周期")
-            Box {
-                PickerRow(text = cycleLabel(fCycle)) {
-                    focusManager.clearFocus()
-                    cycleOpen = true
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("周期 · CYCLE", color = c.fnt)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                CYCLE_KEYS.forEach { key ->
+                    Chip(cycleLabel(key), selected = fCycle == key, onClick = { fCycle = key })
                 }
-                DropdownMenu(expanded = cycleOpen, onDismissRequest = { cycleOpen = false }) {
-                    CYCLE_KEYS.forEach { key ->
-                        DropdownMenuItem(
-                            text = { Text(cycleLabel(key), color = if (key == fCycle) colors.accent else colors.text) },
-                            onClick = {
-                                fCycle = key
-                                cycleOpen = false
-                            },
-                        )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("下次日期 · NEXT", color = c.fnt)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        focusManager.clearFocus()
+                        showDatePicker = true
                     }
+                    .padding(vertical = 10.dp),
+            ) {
+                Text(
+                    dayName(fNextDate) + " " + mmddDot(fNextDate),
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 13.sp, color = c.tx),
+                    modifier = Modifier.weight(1f),
+                )
+                Text("›", style = TextStyle(fontFamily = MonoFamily, fontSize = 14.sp, color = c.fnt))
+            }
+            HLine()
+
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("一级分类 · CATEGORY", color = c.fnt)
+            Spacer(Modifier.height(6.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                cats.forEach { cat ->
+                    Chip(cat.name, selected = fCatKey == cat.key, onClick = {
+                        if (fCatKey != cat.key) {
+                            fCatKey = cat.key
+                            fSubKey = ""
+                        }
+                        focusManager.clearFocus()
+                    })
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("下次日期")
-            PickerRow(text = fNextDate) {
-                focusManager.clearFocus()
-                showDatePicker = true
-            }
-
-            Spacer(Modifier.height(12.dp))
-            JxLabel("一级分类")
-            Box {
-                PickerRow(text = currentCat?.name ?: "请选择", placeholder = currentCat == null) {
-                    focusManager.clearFocus()
-                    catOpen = true
-                }
-                DropdownMenu(expanded = catOpen, onDismissRequest = { catOpen = false }) {
-                    cats.forEach { c ->
-                        DropdownMenuItem(
-                            text = { Text(c.name, color = if (c.key == fCatKey) colors.accent else colors.text) },
-                            onClick = {
-                                if (c.key != fCatKey) {
-                                    fCatKey = c.key
-                                    fSubKey = ""
-                                }
-                                catOpen = false
-                            },
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            JxLabel("二级分类")
-            Box {
-                val subName = subs.firstOrNull { it.key == fSubKey }?.name
-                PickerRow(text = subName ?: "选择小类", placeholder = subName == null) {
-                    focusManager.clearFocus()
-                    subOpen = true
-                }
-                DropdownMenu(expanded = subOpen, onDismissRequest = { subOpen = false }) {
+            if (subs.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                MicroLabel("二级分类 · SUB", color = c.fnt)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     subs.forEach { s ->
-                        DropdownMenuItem(
-                            text = { Text(s.name, color = if (s.key == fSubKey) colors.accent else colors.text) },
-                            onClick = {
-                                fSubKey = s.key
-                                subOpen = false
-                            },
-                        )
+                        Chip(s.name, selected = fSubKey == s.key, onClick = { fSubKey = s.key })
                     }
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("备注")
-            JxTextField(
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("备注 · NOTE", color = c.fnt)
+            BTextField(
                 value = fNote,
                 onValueChange = { fNote = it },
                 placeholder = "如：房租、Netflix",
+                textSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp),
             )
+            HLine(Modifier.padding(top = 6.dp))
 
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Spacer(Modifier.weight(1f))
-                JxLink("取消", onClick = { showAdd = false }, color = colors.sub, size = 14.sp)
-                JxLink("添加", onClick = { addBill() }, size = 14.sp)
+                MiniButton("取消", onClick = { showAdd = false })
+                MiniButton("添加", onClick = { addBill() }, primary = true)
             }
         }
     }
@@ -387,9 +359,10 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     deleteId?.let { id ->
-        JxConfirmDialog(
+        BConfirm(
             title = "确定删除？",
-            message = "删除后无法恢复",
+            message = "删除后无法恢复，已记录的账不受影响",
+            confirmText = "删除",
             onDismiss = { deleteId = null },
             onConfirm = {
                 deleteId = null
@@ -403,78 +376,73 @@ fun RecurringScreen(container: AppContainer, onBack: () -> Unit) {
 }
 
 @Composable
-private fun PickerRow(text: String, placeholder: Boolean = false, onClick: () -> Unit) {
-    val colors = JiXuTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(7.dp))
-            .background(colors.soft)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Text(
-            text,
-            fontSize = 14.sp,
-            color = if (placeholder) colors.faint else colors.text,
-            modifier = Modifier.weight(1f),
-        )
-        Text("▼", fontSize = 9.sp, color = colors.muted)
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
 private fun BillCard(
+    index: Int,
     bill: RecurringBillEntity,
     onToggle: () -> Unit,
     onExecute: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val colors = JiXuTheme.colors
-    JxCard(modifier = Modifier.alpha(if (bill.isActive) 1f else 0.5f)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(if (bill.type == "income") colors.inc else colors.exp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "${bill.categoryName} · ${bill.subcategoryName}",
-                fontSize = 12.sp,
-                color = colors.sub,
-                modifier = Modifier.weight(1f),
-            )
+    val c = JiXuTheme.colors
+    Panel(modifier = Modifier.alpha(if (bill.isActive) 1f else 0.55f)) {
+        ModuleHeader(
+            id = "R-" + (index + 1).toString().padStart(2, '0'),
+            title = bill.subcategoryName.ifEmpty { bill.categoryName },
+            en = cycleLabel(bill.cycle).let {
+                when (bill.cycle) {
+                    "daily" -> "DAILY"
+                    "weekly" -> "WEEKLY"
+                    "monthly" -> "MONTHLY"
+                    "yearly" -> "YEARLY"
+                    else -> "CYCLE"
+                }
+            },
+        ) {
+            Toggle(checked = bill.isActive, onChange = { onToggle() })
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 (if (bill.type == "income") "+" else "-") + "¥" + formatMoneyExact(bill.amount),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (bill.type == "income") colors.inc else colors.exp,
+                style = TextStyle(
+                    fontFamily = MonoFamily,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = (-0.5).sp,
+                    color = if (bill.type == "income") c.inc else c.tx,
+                ),
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${bill.categoryName} · ${bill.subcategoryName}",
+                style = TextStyle(fontFamily = SansFamily, fontSize = 11.sp, color = c.dim),
             )
         }
         Spacer(Modifier.height(8.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            JxTag(cycleLabel(bill.cycle), fg = colors.sub, bg = colors.soft)
-            Text("下次：${bill.nextDate}", fontSize = 11.sp, color = colors.muted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "下次 " + mmddDot(bill.nextDate),
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 10.5.sp, color = c.dim),
+            )
             if (bill.note.isNotEmpty()) {
-                Text("· ${bill.note}", fontSize = 11.sp, color = colors.faint)
+                Text(
+                    "· ${bill.note}",
+                    style = TextStyle(fontFamily = SansFamily, fontSize = 11.sp, color = c.fnt),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
             }
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (bill.isActive) "已启用" else "已停用",
+                style = TextStyle(fontFamily = SansFamily, fontSize = 10.5.sp, color = if (bill.isActive) c.inc else c.fnt),
+            )
         }
         Spacer(Modifier.height(10.dp))
+        HLine()
+        Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (bill.isActive) {
-                JxSmallAction("已启用", onClick = onToggle, fg = colors.inc, bg = colors.incSoft)
-            } else {
-                JxSmallAction("已停用", onClick = onToggle, fg = colors.muted, bg = colors.soft)
-            }
-            JxSmallAction("立即记录", onClick = onExecute)
-            JxSmallAction("删除", onClick = onDelete, fg = colors.exp, bg = colors.expSoft)
+            MiniButton("立即记录", onClick = onExecute, primary = true)
+            MiniButton("删除", onClick = onDelete, danger = true)
         }
     }
 }

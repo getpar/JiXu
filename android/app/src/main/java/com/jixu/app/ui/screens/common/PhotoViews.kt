@@ -3,6 +3,7 @@ package com.jixu.app.ui.screens.common
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,23 +11,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.jixu.app.JiXuApp
 import com.jixu.app.ui.theme.JiXuTheme
+import com.jixu.app.ui.theme.SansFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,12 +49,13 @@ fun rememberPhoto(path: String?, maxSide: Int): Bitmap? {
 
 @Composable
 fun PhotoThumb(path: String, onClick: () -> Unit, size: Int = 64) {
+    val c = JiXuTheme.colors
     val bitmap = rememberPhoto(path, 320)
     Box(
         modifier = Modifier
             .size(size.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(JiXuTheme.colors.soft)
+            .background(c.p3)
+            .border(1.dp, c.ln2)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -65,7 +67,10 @@ fun PhotoThumb(path: String, onClick: () -> Unit, size: Int = 64) {
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Text("照片", fontSize = 11.sp, color = JiXuTheme.colors.faint)
+            Text(
+                "照片",
+                style = TextStyle(fontFamily = SansFamily, fontSize = 11.sp, color = c.fnt),
+            )
         }
     }
 }
@@ -73,14 +78,15 @@ fun PhotoThumb(path: String, onClick: () -> Unit, size: Int = 64) {
 /** 点「凭证」后的全屏大图，点任意处关闭 */
 @Composable
 fun PhotoPreviewDialog(path: String, onDismiss: () -> Unit) {
+    val c = JiXuTheme.colors
     val bitmap = rememberPhoto(path, 2048)
     Dialog(onDismissRequest = onDismiss) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(520.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF101114))
+                .background(Color(0xFF0A0B0D))
+                .border(1.dp, c.ln2)
                 .clickable(onClick = onDismiss),
             contentAlignment = Alignment.Center,
         ) {
@@ -94,7 +100,10 @@ fun PhotoPreviewDialog(path: String, onDismiss: () -> Unit) {
                     contentScale = ContentScale.Fit,
                 )
             } else {
-                Text("照片已不存在", fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                Text(
+                    "照片已不存在",
+                    style = TextStyle(fontFamily = SansFamily, fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f)),
+                )
             }
         }
     }

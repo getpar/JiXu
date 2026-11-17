@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>计序 · 色谱</title>
+<script>
+(function () {
+  var q = location.search.match(/[?&]theme=(light|dark)/);
+  var r = document.documentElement;
+  r.dataset.theme = q ? q[1] : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  if (q) r.dataset.themeLock = '1';
+})();
+</script>
+<link rel="stylesheet" href="../shared/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="rail" id="rail" aria-label="主导航"></nav>
+<main id="views">
+  <section class="view" id="v-home" data-route="home" aria-label="首页"></section>
+  <section class="view" id="v-add" data-route="add" aria-label="记一笔"></section>
+  <section class="view" id="v-history" data-route="history" aria-label="账单"></section>
+  <section class="view" id="v-stats" data-route="stats" aria-label="统计"></section>
+  <section class="view" id="v-more" data-route="more" aria-label="更多"></section>
+</main>
+<nav class="tabbar" id="tabbar" aria-label="底部导航"></nav>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="tip" id="tip" aria-hidden="true"></div>
+<div class="flood" id="flood" aria-hidden="true"></div>
+<script src="../shared/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

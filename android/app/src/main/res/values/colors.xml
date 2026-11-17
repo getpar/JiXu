@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 开发文档 §9 浅色配色 -->
-    <color name="theme_background">#F5F6F8</color>
-    <color name="ic_launcher_background">#2E82EC</color>
+    <!-- B · 夜航仪表 浅色（冷启动窗口底色，与 Compose 主题同值，避免闪屏） -->
+    <color name="theme_background">#E6E7E2</color>
+    <color name="ic_launcher_background">#0A0B0D</color>
 </resources>

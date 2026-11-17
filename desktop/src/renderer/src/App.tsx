@@ -9,6 +9,7 @@ import RecurringPage from './pages/RecurringPage'
 import TodosPage from './pages/TodosPage'
 import QuickAddPage from './pages/QuickAddPage'
 import RecycleBinPage from './pages/RecycleBinPage'
+import SavingsPage from './pages/SavingsPage'
 
 function App(): JSX.Element {
   return (
@@ -22,6 +23,7 @@ function App(): JSX.Element {
         <Route path="categories" element={<CategoryPage />} />
         <Route path="recurring" element={<RecurringPage />} />
         <Route path="todos" element={<TodosPage />} />
+        <Route path="savings" element={<SavingsPage />} />
         <Route path="quick-add" element={<QuickAddPage />} />
         <Route path="recycle-bin" element={<RecycleBinPage />} />
       </Route>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F2EEE5">
+<title>计序 · 朱印账簿</title>
+<script>
+(function () {
+  var q = location.search.match(/[?&]theme=(light|dark)/);
+  var r = document.documentElement;
+  r.dataset.theme = q ? q[1] : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+})();
+</script>
+<link rel="stylesheet" href="../shared/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside id="spine" class="spine" aria-label="主导航"></aside>
+  <div class="main">
+    <header id="runhead" class="runhead"></header>
+    <main id="stage" class="stage">
+      <section class="page" id="p-home" aria-label="首页"></section>
+      <section class="page" id="p-add" aria-label="记一笔"></section>
+      <section class="page" id="p-history" aria-label="账单"></section>
+      <section class="page" id="p-stats" aria-label="统计"></section>
+      <section class="page" id="p-more" aria-label="更多"></section>
+    </main>
+  </div>
+  <nav id="tabbar" class="tabbar" aria-label="主导航"></nav>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="stamp" class="stamp" aria-hidden="true"><span class="zh">已记</span></div>
+<script src="../shared/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

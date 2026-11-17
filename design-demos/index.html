@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>计序 · 界面重设计 · 三个方向</title>
+<link rel="stylesheet" href="shared/fonts.css">
+<style>
+  :root {
+    --bg: #EEEEEB; --ink: #121212; --ink-2: #5C5C58; --line: rgba(18,18,18,.12); --chip: #FFFFFF;
+    --cjk: "PingFang SC","HarmonyOS Sans SC","MiSans","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    --lat: "Inter Tight", var(--cjk);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--lat); -webkit-font-smoothing: antialiased; }
+  header { padding: 56px 56px 28px; display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; border-bottom: 1px solid var(--line); }
+  .eyebrow { font: 500 11px/1 var(--lat); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-2); }
+  h1 { font: 700 44px/1.15 var(--cjk); margin: 14px 0 10px; letter-spacing: -.01em; }
+  header p { margin: 0; max-width: 64ch; color: var(--ink-2); }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .seg { display: inline-flex; background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .seg button { font: 500 13px/1 var(--cjk); border: 0; background: transparent; color: var(--ink-2); padding: 9px 14px; border-radius: 999px; cursor: pointer; transition: background-color .18s, color .18s; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .seg button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  main { padding: 28px 56px 72px; }
+  .stage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+  .stage.desk-mode { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .stage.desk-mode .col { display: grid; grid-template-columns: 320px minmax(0, 1fr); grid-template-areas: "head frame" "concept frame" "actions frame"; align-content: start; gap: 8px 28px; align-items: start; }
+  .stage.desk-mode .col h2 { grid-area: head; }
+  .stage.desk-mode .col .concept { grid-area: concept; }
+  .stage.desk-mode .col .actions { grid-area: actions; }
+  .stage.desk-mode .col .frame { grid-area: frame; }
+  .stage.desk-mode .frame.desk { padding: 26px 8px 8px; }
+  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .col h2 { font: 700 20px/1.3 var(--cjk); margin: 0; display: flex; align-items: baseline; gap: 10px; }
+  .col h2 small { font: 500 11px/1 var(--lat); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+  .col .concept { margin: 0; color: var(--ink-2); font-size: 14px; min-height: 3.2em; }
+  .frame { position: relative; width: 100%; overflow: hidden; border-radius: 14px; background: #000; }
+  .frame.phone { border-radius: 46px; padding: 10px; background: #0E0E0E; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+  .frame.phone .screen { border-radius: 36px; overflow: hidden; position: relative; background: #fff; }
+  .frame.desk .screen { position: relative; overflow: hidden; border-radius: 10px; }
+  .frame.desk { padding: 26px 8px 8px; background: #1A1A1A; }
+  .frame.desk::before { content: ""; position: absolute; top: 9px; left: 12px; width: 44px; height: 8px; background: radial-gradient(circle at 4px 4px, #FF5F57 4px, transparent 4.5px), radial-gradient(circle at 20px 4px, #FEBC2E 4px, transparent 4.5px), radial-gradient(circle at 36px 4px, #28C840 4px, transparent 4.5px); }
+  iframe { border: 0; display: block; transform-origin: 0 0; background: #fff; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions a { font: 500 13px/1 var(--cjk); color: var(--ink); text-decoration: none; border: 1px solid var(--line); background: var(--chip); padding: 10px 14px; border-radius: 999px; transition: transform .15s; }
+  .actions a:hover { transform: translateY(-1px); }
+  .actions a.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .notes { margin-top: 56px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; border-top: 1px solid var(--line); padding-top: 28px; }
+  .notes h3 { font: 700 15px/1.4 var(--cjk); margin: 0 0 8px; }
+  .notes ul { margin: 0; padding-left: 1.1em; color: var(--ink-2); font-size: 14px; }
+  .notes li { margin: 4px 0; }
+  .missing { display: grid; place-items: center; color: #888; font: 14px/1.5 var(--cjk); background: #fafafa; }
+  @media (max-width: 1100px) {
+    header, main { padding-left: 24px; padding-right: 24px; }
+    .stage, .notes { grid-template-columns: 1fr; }
+    header { grid-template-columns: 1fr; }
+    .controls { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="eyebrow">JiXu · Redesign · Directions A / B / C</div>
+    <h1>计序 · 三个设计方向</h1>
+    <p>同一份账本数据，三种完全不同的气质。下面三台设备里都是可以点、可以记账的真实交互，不是图片。切换上方按钮对比同一个页面；点「全屏体验」可以单独细看。</p>
+  </div>
+  <div class="controls">
+    <div class="seg" id="segDevice" role="group" aria-label="设备">
+      <button data-v="phone" aria-pressed="true">手机</button>
+      <button data-v="desk" aria-pressed="false">电脑</button>
+    </div>
+    <div class="seg" id="segRoute" role="group" aria-label="页面">
+      <button data-v="home" aria-pressed="true">首页</button>
+      <button data-v="add" aria-pressed="false">记一笔</button>
+      <button data-v="history" aria-pressed="false">账单</button>
+      <button data-v="stats" aria-pressed="false">统计</button>
+    </div>
+    <div class="seg" id="segTheme" role="group" aria-label="主题">
+      <button data-v="light" aria-pressed="true">白天</button>
+      <button data-v="dark" aria-pressed="false">夜间</button>
+    </div>
+  </div>
+</header>
+<main>
+  <section class="stage" id="stage"></section>
+  <section class="notes" id="notes"></section>
+</main>
+<script>
+(function () {
+  var DIRS = [
+    { dir: 'a-ledger', tag: 'A', name: '朱印 · 账簿', en: 'Vermilion Ledger',
+      concept: '像一本排版考究的纸质账本：米白纸面、墨色文字、一枚朱红印章。每记一笔，盖一个「已记」。安静、有文化感。',
+      notes: ['纸墨 + 朱砂红，红色只用在最关键的地方', '大号衬线数字 + 宋体标题（只打包用到的字，体积小）', '预算是一把「尺」，看得出花钱快慢', '记账成功：朱印盖章 + 这一行「写」进账本'] },
+    { dir: 'b-instrument', tag: 'B', name: '夜航 · 仪表', en: 'Night Instrument',
+      concept: '像一台精密仪表：深色面板、等宽数字、一抹荧光绿。所有数字都是清清楚楚的「读数」。专业、专注、有科技感。',
+      notes: ['深色为主（也有白天版），荧光绿只做信号色', '等宽数字，数字变化时会「跳表」', '预算是一个表盘，指针扫到当前位置', '记账成功：一道扫描线「发送」，指示灯闪一下'] },
+    { dir: 'c-spectrum', tag: 'C', name: '色谱 · 日子', en: 'Spectrum',
+      concept: '每个分类一种颜色，每个月都是一条独一无二的色带——「这个月是什么颜色」。温暖、活泼、手感好，记账像在玩。',
+      notes: ['11 个分类各有专属色，整体协调不花哨', '首页主角是「本月色谱」，一眼看出钱花哪了', '「颜色日历」：每天一个圆点，大小代表花多少', '记账成功：颜色块飞进色谱，那一段随之变长'] }
+  ];
+  var state = { device: 'phone', route: 'home', theme: 'light' };
+  var stage = document.getElementById('stage');
+  var notes = document.getElementById('notes');
+  var SIZES = { phone: [390, 844], desk: [1440, 900] };
+
+  DIRS.forEach(function (d) {
+    var col = document.createElement('div');
+    col.className = 'col';
+    col.innerHTML = '<h2>' + d.tag + ' · ' + d.name + ' <small>' + d.en + '</small></h2>' +
+      '<p class="concept">' + d.concept + '</p>' +
+      '<div class="frame"><div class="screen"><iframe title="' + d.name + '" loading="lazy"></iframe></div></div>' +
+      '<div class="actions"><a class="primary" target="_blank" data-full>全屏体验</a><a target="_blank" data-dark>夜间版</a></div>';
+    stage.appendChild(col);
+    d.col = col;
+    var n = document.createElement('div');
+    n.innerHTML = '<h3>' + d.tag + ' · ' + d.name + '</h3><ul>' + d.notes.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>';
+    notes.appendChild(n);
+  });
+
+  function layout() {
+    DIRS.forEach(function (d) {
+      var frame = d.col.querySelector('.frame');
+      document.getElementById('stage').classList.toggle('desk-mode', state.device === 'desk');
+      var screen = d.col.querySelector('.screen');
+      var iframe = d.col.querySelector('iframe');
+      var size = SIZES[state.device];
+      frame.className = 'frame ' + state.device;
+      frame.style.width = ''; frame.style.margin = '';
+      var inner = frame.clientWidth - (state.device === 'phone' ? 20 : 16);
+      if (state.device === 'phone') inner = Math.min(inner, 390 * 0.92);
+      var scale = inner / size[0];
+      screen.style.width = (size[0] * scale) + 'px';
+      screen.style.height = (size[1] * scale) + 'px';
+      if (state.device === 'phone') { frame.style.width = (size[0] * scale + 20) + 'px'; frame.style.margin = '0 auto'; }
+      else { frame.style.width = ''; frame.style.margin = ''; }
+      iframe.style.width = size[0] + 'px';
+      iframe.style.height = size[1] + 'px';
+      iframe.style.transform = 'scale(' + scale + ')';
+      var src = d.dir + '/index.html?theme=' + state.theme + '#' + state.route;
+      if (iframe.getAttribute('data-src') !== src) { iframe.setAttribute('data-src', src); iframe.src = src; }
+      d.col.querySelector('[data-full]').href = d.dir + '/index.html?theme=light#' + state.route;
+      d.col.querySelector('[data-dark]').href = d.dir + '/index.html?theme=dark#' + state.route;
+    });
+  }
+
+  function bindSeg(id, key) {
+    var seg = document.getElementById(id);
+    seg.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      state[key] = b.dataset.v;
+      seg.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      layout();
+    });
+  }
+  bindSeg('segDevice', 'device');
+  bindSeg('segRoute', 'route');
+  bindSeg('segTheme', 'theme');
+  window.addEventListener('resize', layout);
+  layout();
+})();
+</script>
+</body>
+</html>

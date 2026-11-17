@@ -48,5 +48,6 @@ object PrefsKeys {
     const val AUTH_EXPIRES_AT = "auth_expires_at"
     const val BUDGET = "budget"
     const val UI_THEME_PREF = "ui_theme_pref"
+    const val UI_STYLE_PREF = "ui_style_pref"
     const val LAST_DUE_REMIND = "last_due_remind"
 }

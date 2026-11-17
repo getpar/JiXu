@@ -1,37 +1,57 @@
 import { formatMoneyExact } from '../utils/money'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, Typography, Button, Switch, message, Modal, Input, Space, notification } from 'antd'
+import { message, Modal, Input, QRCode, notification } from 'antd'
+import { Icon } from './ui'
 import {
-  HomeOutlined, PlusCircleOutlined, UnorderedListOutlined, BarChartOutlined,
-  TagsOutlined, SyncOutlined, SunOutlined, MoonOutlined,
-  DownloadOutlined, UploadOutlined, ThunderboltOutlined, CloudOutlined, CheckSquareOutlined, CopyOutlined, DeleteOutlined, ExclamationCircleOutlined,
-} from '@ant-design/icons'
+  AppCtx,
+  getTheme,
+  setTheme,
+  subscribeTheme,
+  getUiStyle,
+  setUiStyle,
+  subscribeUiStyle,
+  type Theme,
+  type UiStyle,
+} from './appCtx'
 import {
-  initCloud, isConnected, getEnvId, performSync, disconnect, CloudRecord,
-  getOwnerId, setOwnerId, newOwnerId, formatOwnerId,
+  initCloud, isConnected, performSync, disconnect,
+  getOwnerId, setOwnerId, newOwnerId, formatOwnerId, getEnvId,
+  createPairRequest, pollPairAck, deletePairRequest, type PairRequest,
 } from '../services/cloudbase'
-
-const { Sider, Content } = Layout
-const { Text } = Typography
+import { runSavingsSync } from '../services/savingsCloud'
 
 // 默认云环境（与小程序端 cloud.ts 的 CLOUD_ENV_ID 一致），弹窗可改
 const DEFAULT_CLOUD_ENV_ID = 'daily-notes-d3gaotrwyc09ff44a'
+// 配对时显示的电脑名称（写进 pair_req / 二维码，手机端可见）
+const PAIR_DEVICE_NAME = 'Windows 电脑'
 
-const menuItems = [
-  { key: '/home', icon: <HomeOutlined />, label: '首页' },
-  { key: '/add', icon: <PlusCircleOutlined />, label: '记一笔' },
-  { key: '/history', icon: <UnorderedListOutlined />, label: '账单明细' },
-  { key: '/stats', icon: <BarChartOutlined />, label: '统计分析' },
-  { key: '/categories', icon: <TagsOutlined />, label: '分类管理' },
-  { key: '/recurring', icon: <SyncOutlined />, label: '周期账单' },
-  { key: '/todos', icon: <CheckSquareOutlined />, label: '待办事项' },
-  { key: '/recycle-bin', icon: <DeleteOutlined />, label: '回收站' },
+interface NavItem {
+  key: string
+  icon: string
+  label: string
+  cn: string
+  en: string
+  id: string
+}
+
+const NAV: NavItem[] = [
+  { key: '/home', icon: 'home', label: '首页', cn: '总览', en: 'OVERVIEW', id: '01' },
+  { key: '/add', icon: 'add', label: '记一笔', cn: '记一笔', en: 'ENTRY', id: '02' },
+  { key: '/history', icon: 'log', label: '账单', cn: '账单', en: 'LOG', id: '03' },
+  { key: '/stats', icon: 'stats', label: '统计', cn: '统计', en: 'ANALYSIS', id: '04' },
+  { key: '/categories', icon: 'tag', label: '分类', cn: '分类', en: 'CATEGORIES', id: '05' },
+  { key: '/recurring', icon: 'cyc', label: '周期', cn: '周期', en: 'RECURRING', id: '06' },
+  { key: '/todos', icon: 'todo', label: '待办', cn: '待办', en: 'TODO', id: '07' },
+  { key: '/savings', icon: 'db', label: '存钱', cn: '存钱罐', en: 'SAVINGS', id: '08' },
+  { key: '/recycle-bin', icon: 'trash', label: '回收站', cn: '回收站', en: 'TRASH', id: '09' },
 ]
 
+const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
 function AppLayout(): JSX.Element {
-  const [collapsed, setCollapsed] = useState(false)
-  const [darkMode, setDarkMode] = useState(false)
+  const [theme, setThemeState] = useState<Theme>(getTheme())
+  const [uiStyle, setUiStyleState] = useState<UiStyle>(getUiStyle())
   const [shortcut, setShortcut] = useState('Ctrl+Shift+N')
   const [shortcutModalOpen, setShortcutModalOpen] = useState(false)
   const [shortcutInput, setShortcutInput] = useState('')
@@ -41,20 +61,73 @@ function AppLayout(): JSX.Element {
   const [cloudModalOpen, setCloudModalOpen] = useState(false)
   const [cloudEnvId, setCloudEnvId] = useState(localStorage.getItem('cloud_envId') || DEFAULT_CLOUD_ENV_ID)
   const [cloudCode, setCloudCode] = useState('')
+  const [syncCode, setSyncCode] = useState('')
+  // 扫码配对（方案B）
+  const [pairReq, setPairReq] = useState<PairRequest | null>(null)
+  const [pairLoading, setPairLoading] = useState(false)
+  const [pairWaiting, setPairWaiting] = useState(false)
+  const [pairError, setPairError] = useState('')
+  const pairTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pairDocRef = useRef<string | null>(null)
+  const pairEnvRef = useRef('')
+  const pairOpenRef = useRef(false)          // 弹窗是否仍打开（防取消后异步回调继续生成/绑定）
+  const pairActiveRef = useRef<string | null>(null) // 当前有效的 pairingId（防取消后旧请求回来误绑定）
+  const syncRef = useRef<(() => Promise<void>) | null>(null)
+  const [lastSyncAt, setLastSyncAt] = useState(Date.now())
+  const [now, setNow] = useState(() => new Date())
   const navigate = useNavigate()
   const location = useLocation()
 
+  useEffect(() => subscribeTheme(setThemeState), [])
+  useEffect(() => subscribeUiStyle(setUiStyleState), [])
+
+  // 始终保持最新的同步函数引用（配对成功后自动同步用，避免拿到旧闭包）
   useEffect(() => {
-    if (localStorage.getItem('darkMode') === 'true') setDarkMode(true)
+    syncRef.current = handleSync
+  })
+
+  // 云同步弹窗关闭（取消 / 遮罩 / ESC / 绑定成功）时：停止轮询并尽力删除配对请求
+  useEffect(() => {
+    if (cloudModalOpen) return
+    pairOpenRef.current = false
+    stopPairPolling()
+    cleanupPairRequest()
+    setPairReq(null)
+    setPairError('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudModalOpen])
+
+  // 组件卸载时清 interval + 删除配对请求（尽力清理）
+  useEffect(() => {
+    return () => {
+      pairOpenRef.current = false
+      pairActiveRef.current = null
+      if (pairTimerRef.current !== null) {
+        clearInterval(pairTimerRef.current)
+        pairTimerRef.current = null
+      }
+      const docId = pairDocRef.current
+      pairDocRef.current = null
+      if (docId) void deletePairRequest(docId)
+    }
+  }, [])
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
     loadShortcut()
     loadCloudStatus()
+    setSyncCode(formatOwnerId(getOwnerId()))
     // 键盘导航：Ctrl+数字 切换页面
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       const keyMap: Record<string, string> = {
         '1': '/home', '2': '/add', '3': '/history',
-        '4': '/stats', '5': '/categories', '6': '/recurring', '7': '/todos',
+        '4': '/stats', '5': '/categories', '6': '/recurring', '7': '/todos', '8': '/savings',
       }
       if (keyMap[e.key]) { e.preventDefault(); navigate(keyMap[e.key]) }
     }
@@ -108,12 +181,13 @@ function AppLayout(): JSX.Element {
     } catch { message.error('快捷键设置失败') }
   }
 
-  function toggleDarkMode(val: boolean): void {
-    setDarkMode(val)
-    localStorage.setItem('darkMode', String(val))
-    document.documentElement.style.filter = val ? 'invert(0.9) hue-rotate(180deg)' : ''
-    document.documentElement.style.background = val ? '#111' : ''
-  }
+  const toggleTheme = useCallback((): void => {
+    setTheme(theme === 'dark' ? 'light' : 'dark')
+  }, [theme])
+
+  const changeUiStyle = useCallback((s: UiStyle): void => {
+    setUiStyle(s)
+  }, [])
 
   async function handleBackup(): Promise<void> {
     try {
@@ -169,7 +243,6 @@ function AppLayout(): JSX.Element {
     })
   }
 
-
   async function loadCloudStatus(): Promise<void> {
     // 检查 localStorage 中是否保存了 envId（没填过则用默认环境），自动静重连
     const savedEnvId = localStorage.getItem('cloud_envId') || DEFAULT_CLOUD_ENV_ID
@@ -189,7 +262,7 @@ function AppLayout(): JSX.Element {
     const t = new Date(s.replace(' ', 'T')).getTime()
     return Number.isFinite(t) ? t : 0
   }
-  
+
   async function handleSync(): Promise<void> {
     if (syncing) return
 
@@ -304,6 +377,9 @@ function AppLayout(): JSX.Element {
           // 实体变化后通知当前页面刷新（待办/周期页监听）
           if (entitiesApplied > 0) window.dispatchEvent(new CustomEvent('entity-synced'))
         }
+        setLastSyncAt(Date.now())
+        // 存钱罐独立同步：失败不影响账单同步结果（savings 集合未建时页面会提示仅本机）
+        runSavingsSync().catch(() => { /* 下次进存钱页补同步 */ })
       } else {
         message.warning(result.error || '同步失败，请检查网络和环境 ID')
       }
@@ -314,7 +390,118 @@ function AppLayout(): JSX.Element {
     }
   }
 
+  // ---- 扫码配对（方案B：电脑显示二维码，手机小程序扫码绑定）----
+
+  function stopPairPolling(): void {
+    pairActiveRef.current = null
+    if (pairTimerRef.current !== null) {
+      clearInterval(pairTimerRef.current)
+      pairTimerRef.current = null
+    }
+    setPairWaiting(false)
+  }
+
+  function cleanupPairRequest(): void {
+    const docId = pairDocRef.current
+    pairDocRef.current = null
+    if (docId) void deletePairRequest(docId)
+  }
+
+  function startPairPolling(req: PairRequest): void {
+    stopPairPolling()
+    pairActiveRef.current = req.pairingId
+    setPairWaiting(true)
+    let inFlight = false
+    const timer = setInterval(async () => {
+      if (inFlight) return
+      // 请求过期：停止轮询，提示重新生成
+      if (Date.now() > req.expiresAt) {
+        stopPairPolling()
+        setPairError('二维码已过期，请重新生成')
+        return
+      }
+      inFlight = true
+      try {
+        const owner = await pollPairAck(req.pairingId)
+        // 等待期间弹窗被关闭 / 已重新生成：丢弃这次结果，不能让旧请求偷偷绑定
+        if (pairActiveRef.current !== req.pairingId || !pairOpenRef.current) return
+        if (!owner) return
+        // 绑定成功
+        stopPairPolling()
+        if (!setOwnerId(owner)) {
+          setPairError('收到的微信账本标识无效，请重新生成二维码')
+          return
+        }
+        setSyncCode(formatOwnerId(owner))
+        setCloudEnabled(true)
+        if (pairEnvRef.current) localStorage.setItem('cloud_envId', pairEnvRef.current)
+        message.success('已绑定微信账本')
+        cleanupPairRequest()
+        setPairReq(null)
+        setPairError('')
+        setCloudModalOpen(false)
+        // handleSync 内部用 isConnected() 判断连接，不依赖 cloudEnabled state；这里直接触发一次完整同步
+        window.setTimeout(() => { void syncRef.current?.() }, 0)
+      } finally {
+        inFlight = false
+      }
+    }, 1500)
+    pairTimerRef.current = timer
+  }
+
+  async function handleGeneratePairQr(): Promise<void> {
+    if (pairLoading) return
+    setPairLoading(true)
+    setPairError('')
+    // 重新生成：先停旧轮询、清理旧请求
+    stopPairPolling()
+    cleanupPairRequest()
+    setPairReq(null)
+    try {
+      const env = cloudEnvId.trim()
+      if (!env) { message.warning('请先填写 CloudBase 环境 ID'); return }
+      // 未连接（或环境换了）先初始化云连接
+      if (!isConnected() || getEnvId() !== env) {
+        const ok = await initCloud(env)
+        if (!ok) {
+          message.error('连接云端失败，请检查环境 ID 与匿名登录设置')
+          return
+        }
+        // 初始化期间用户关掉了弹窗：不再继续生成
+        if (!pairOpenRef.current) return
+        setCloudEnabled(true)
+      }
+      pairEnvRef.current = env
+      const req = await createPairRequest(PAIR_DEVICE_NAME)
+      if (!pairOpenRef.current) {
+        // 生成期间弹窗已关闭：顺手清掉刚创建的请求
+        if (req?.docId) void deletePairRequest(req.docId)
+        return
+      }
+      if (!req) {
+        setPairError('生成绑定二维码失败，请稍后重试')
+        return
+      }
+      pairDocRef.current = req.docId
+      setPairReq(req)
+      startPairPolling(req)
+    } finally {
+      setPairLoading(false)
+    }
+  }
+
+  function closeCloudModal(): void {
+    pairOpenRef.current = false
+    stopPairPolling()
+    cleanupPairRequest()
+    setPairReq(null)
+    setPairError('')
+    setCloudModalOpen(false)
+  }
+
   function openCloudModal(): void {
+    pairOpenRef.current = true
+    setPairError('')
     setCloudCode(formatOwnerId(getOwnerId()))
     setCloudModalOpen(true)
   }
@@ -337,6 +524,7 @@ function AppLayout(): JSX.Element {
         localStorage.setItem('cloud_envId', envId)
         setCloudEnabled(true)
         setCloudModalOpen(false)
+        setSyncCode(formatOwnerId(getOwnerId()))
         message.success({ content: '云同步已连接', key: 'cloud' })
       } else {
         message.error({ content: '连接失败，请检查环境 ID 是否正确', key: 'cloud' })
@@ -346,7 +534,12 @@ function AppLayout(): JSX.Element {
     }
   }
 
-  async function handleDisconnectCloud(): Promise<void> {
+  function handleDisconnectCloud(): void {
+    // 先清理配对请求（还需要 db 才能删），再断开
+    stopPairPolling()
+    cleanupPairRequest()
+    setPairReq(null)
+    setPairError('')
     disconnect()
     localStorage.removeItem('cloud_envId')
     setCloudEnabled(false)
@@ -354,324 +547,291 @@ function AppLayout(): JSX.Element {
     message.success('已断开云同步')
   }
 
-  const selectedKey = '/' + location.pathname.split('/')[1]
+  const active = '/' + location.pathname.split('/')[1]
+  const nav = NAV.find((n) => n.key === active) || NAV[0]
 
-  // 侧边栏样式
-  const siderStyle: React.CSSProperties = {
-    background: 'linear-gradient(180deg, #0F172A 0%, #1E293B 100%)',
-    borderRight: 'none',
-    boxShadow: '4px 0 24px rgba(0,0,0,0.12)',
-  }
+  const clock = useMemo(() => {
+    const p = (n: number): string => String(n).padStart(2, '0')
+    return `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`
+  }, [now])
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const wd = WD[now.getDay()]
 
-  const logoStyle: React.CSSProperties = {
-    height: 68,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
-    flexShrink: 0,
-  }
+  const mins = Math.floor((Date.now() - lastSyncAt) / 60000)
+  const syncTxt = syncing
+    ? '同步中'
+    : !cloudEnabled
+      ? '未连接云端'
+      : mins < 1
+        ? '刚刚已同步'
+        : `${mins} 分钟前已同步`
 
-  const footerStyle: React.CSSProperties = {
-    padding: 12,
-    borderTop: '1px solid rgba(255,255,255,0.08)',
-    background: 'rgba(0,0,0,0.15)',
-    flexShrink: 0,
-  }
-
-  const contentStyle: React.CSSProperties = {
-    padding: 28,
-    minHeight: '100vh',
-    overflow: 'auto',
-    background: '#F1F5F9',
-  }
+  const shared = useMemo(
+    () => ({
+      theme,
+      toggleTheme,
+      uiStyle,
+      setUiStyle: changeUiStyle,
+      syncing,
+      cloudEnabled,
+      syncCode,
+      lastSyncAt,
+      sync: handleSync,
+      openCloud: openCloudModal,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [theme, toggleTheme, uiStyle, changeUiStyle, syncing, cloudEnabled, syncCode, lastSyncAt],
+  )
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        width={220}
-        style={siderStyle}
-        trigger={null}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          {/* Logo */}
-          <div style={logoStyle}>
-            {collapsed ? (
-              <span style={{ fontSize: 24 }}>📒</span>
-            ) : (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: '#FF6B35', letterSpacing: 1 }}>
-                  计序
-                </div>
-                <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2, letterSpacing: 2 }}>
-                  JI XU
-                </div>
-              </div>
-            )}
+    <AppCtx.Provider value={shared}>
+      <div className="app">
+        <nav className="rail" aria-label="主导航">
+          <button className="logo" onClick={() => navigate('/home')} aria-label="计序 首页">
+            <b>计序</b>
+            <i />
+            <span>JX-26</span>
+          </button>
+          <div className="rail-g">
+            {NAV.map((n) => (
+              <button
+                key={n.key}
+                className={`ri ${active === n.key ? 'on' : ''}`}
+                onClick={() => navigate(n.key)}
+                title={n.cn}
+                aria-current={active === n.key ? 'page' : undefined}
+              >
+                <Icon n={n.icon} />
+                <span>{n.label}</span>
+              </button>
+            ))}
           </div>
-
-          {/* 菜单 */}
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            items={menuItems}
-            onClick={({ key }) => navigate(key)}
-            style={{
-              background: 'transparent',
-              borderRight: 0,
-              marginTop: 12,
-              flex: 1,
-              overflow: 'auto',
-            }}
-            theme="dark"
-          />
-
-          {/* 底部操作区 */}
-          <div style={footerStyle}>
-            {!collapsed ? (
-              <>
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  marginBottom: 10, padding: '0 4px',
-                }}>
-                  <span style={{ fontSize: 12, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {darkMode ? <MoonOutlined /> : <SunOutlined />}
-                    {darkMode ? '暗色模式' : '亮色模式'}
-                  </span>
-                  <Switch
-                    size="small"
-                    checked={darkMode}
-                    onChange={toggleDarkMode}
-                  />
-                </div>
-                <Button
-                  ghost
-                  size="small"
-                  block
-                  icon={<ThunderboltOutlined />}
-                  onClick={() => { setShortcutModalOpen(true); setShortcutInput(shortcut) }}
-                  style={{ marginBottom: 6, borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#CBD5E1' }}
-                >
-                  快捷键
-                </Button>
-                <Button
-                  ghost
-                  size="small"
-                  block
-                  icon={<CloudOutlined />}
-                  onClick={cloudEnabled ? handleSync : openCloudModal}
-                  loading={syncing}
-                  style={{
-                    marginBottom: 6, borderRadius: 8,
-                    borderColor: cloudEnabled ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.15)',
-                    color: cloudEnabled ? '#10B981' : '#CBD5E1',
-                  }}
-                >
-                  {cloudEnabled ? '同步数据' : '配置云端'}
-                </Button>
-                {/* v0.6.8 修复：连接后也能重新打开弹窗查看/复制/更换同步码 */}
-                <Button
-                  ghost
-                  size="small"
-                  block
-                  icon={<CopyOutlined />}
-                  onClick={openCloudModal}
-                  style={{ marginBottom: 6, borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#94A3B8', fontSize: 12 }}
-                >
-                  同步码 / 云设置
-                </Button>
-                <Button
-                  ghost
-                  size="small"
-                  block
-                  icon={<DownloadOutlined />}
-                  onClick={handleBackup}
-                  style={{ marginBottom: 6, borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#CBD5E1' }}
-                >
-                  备份数据
-                </Button>
-                <Button
-                  ghost
-                  size="small"
-                  block
-                  icon={<UploadOutlined />}
-                  onClick={handleRestore}
-                  style={{ marginBottom: 6, borderRadius: 8, borderColor: 'rgba(255,255,255,0.15)', color: '#CBD5E1' }}
-                >
-                  恢复数据
-                </Button>
-                {/* v0.8.6 一键清空全部账单（含回收站），二次确认后走 删除→彻底删除 两段同步链路 */}
-                <Button
-                  ghost
-                  size="small"
-                  block
-                  danger
-                  loading={clearing}
-                  icon={<ExclamationCircleOutlined />}
-                  onClick={handleClearAll}
-                  style={{ borderRadius: 8, borderColor: 'rgba(239,68,68,0.45)', color: '#F87171' }}
-                >
-                  清空全部账单
-                </Button>
-              </>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <Switch size="small" checked={darkMode} onChange={toggleDarkMode} />
-                <Button ghost size="small" type="text" icon={<ThunderboltOutlined />}
-                  onClick={() => { setShortcutModalOpen(true); setShortcutInput(shortcut) }}
-                  style={{ color: '#CBD5E1' }} />
-                <Button ghost size="small" type="text" icon={<CloudOutlined />}
-                  onClick={cloudEnabled ? handleSync : openCloudModal} loading={syncing}
-                  style={{ color: cloudEnabled ? '#10B981' : '#CBD5E1' }} />
-                <Button ghost size="small" type="text" icon={<CopyOutlined />}
-                  onClick={openCloudModal} title="同步码 / 云设置"
-                  style={{ color: '#94A3B8' }} />
-                <Button ghost size="small" type="text" icon={<DownloadOutlined />}
-                  onClick={handleBackup} style={{ color: '#CBD5E1' }} />
-                <Button ghost size="small" type="text" icon={<UploadOutlined />}
-                  onClick={handleRestore} style={{ color: '#CBD5E1' }} />
-                <Button ghost size="small" type="text" danger icon={<ExclamationCircleOutlined />}
-                  onClick={handleClearAll} loading={clearing} title="清空全部账单"
-                  style={{ color: '#F87171' }} />
-              </div>
-            )}
+          <div className="rail-end">
+            <button
+              className="ri2"
+              onClick={() => changeUiStyle(uiStyle === 'miniapp' ? 'instrument' : 'miniapp')}
+              title={uiStyle === 'miniapp' ? '界面风格：小程序靛风（点击切回夜航仪表）' : '界面风格：夜航仪表（点击切到小程序靛风）'}
+              aria-label="切换界面风格"
+            >
+              <span className="ui-style-glyph">{uiStyle === 'miniapp' ? '靛' : '仪'}</span>
+            </button>
+            <button className="ri2" onClick={toggleTheme} title={theme === 'dark' ? '切换日间 / 夜航' : '切换日间 / 夜航'} aria-label="切换主题">
+              <Icon n="theme" />
+            </button>
+            <button
+              className="ri2"
+              onClick={cloudEnabled ? handleSync : openCloudModal}
+              title={cloudEnabled ? '同步数据' : '配置云端'}
+              aria-label="同步"
+            >
+              <Icon n={syncing ? 'refresh' : 'up'} />
+            </button>
+            <button className="ri2" onClick={() => { setShortcutModalOpen(true); setShortcutInput(shortcut) }} title="快捷键" aria-label="快捷键">
+              <Icon n="kb" />
+            </button>
+            <button className="ri2" onClick={handleBackup} title="备份数据" aria-label="备份数据">
+              <Icon n="db" />
+            </button>
+            <button className="ri2" onClick={handleRestore} title="恢复数据" aria-label="恢复数据">
+              <Icon n="down" />
+            </button>
+            <button className={`ri2 cor ${clearing ? 'amb' : ''}`} onClick={handleClearAll} title="清空全部账单" aria-label="清空全部账单">
+              <Icon n="trash" />
+            </button>
           </div>
-        </div>
-      </Sider>
+        </nav>
 
-      {/* 收起按钮 */}
-      <div
-        onClick={() => setCollapsed(!collapsed)}
-        style={{
-          position: 'fixed',
-          left: collapsed ? 64 : 204,
-          bottom: 32,
-          zIndex: 100,
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          background: '#FF6B35',
-          color: '#FFF',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          boxShadow: '0 4px 12px rgba(255,107,53,0.4)',
-          transition: 'all 0.2s ease',
-          fontSize: 14,
-          fontWeight: 700,
-          userSelect: 'none',
-        }}
-        title={collapsed ? '展开侧边栏' : '收起侧边栏'}
-      >
-        {collapsed ? '☰' : '✕'}
+        <header className="bar">
+          <div className="crumb">
+            <span className="id">{nav.id}</span>
+            <b>{nav.cn}</b>
+            <span className="en">{nav.en}</span>
+          </div>
+          <div className="clock">
+            <span>
+              {dateStr} {wd}
+            </span>
+            <span className="sep" />
+            <b>{clock}</b>
+            <span>LOCAL</span>
+          </div>
+          <div className="bar-r">
+            <div className="sync" data-sync={syncing ? 'busy' : 'idle'}>
+              <button className="sync-main" onClick={cloudEnabled ? handleSync : openCloudModal} aria-label="云同步">
+                <i className="led" />
+                <span>{syncTxt}</span>
+                <span className="scanbar">
+                  <i />
+                </span>
+              </button>
+              {cloudEnabled && (
+                <button className="code" onClick={openCloudModal} title="云同步设置">
+                  已连接
+                </button>
+              )}
+            </div>
+            <button
+              className="ghost"
+              onClick={() => changeUiStyle(uiStyle === 'miniapp' ? 'instrument' : 'miniapp')}
+              title="切换界面风格"
+            >
+              界面 · {uiStyle === 'miniapp' ? '小程序' : '仪表'}
+            </button>
+            <button className="ghost ic" onClick={toggleTheme} aria-label="切换日间 / 夜航">
+              <Icon n="theme" />
+            </button>
+            <button className="cta" onClick={() => navigate('/add')}>
+              + 记一笔
+              <span className="kbd">Ctrl+2</span>
+            </button>
+          </div>
+        </header>
+
+        <main className="main">
+          <div className="view">
+            <Outlet />
+          </div>
+        </main>
       </div>
 
-      {/* 内容区 */}
-      <Layout>
-        <Content style={contentStyle}>
-          <Outlet />
-        </Content>
-      </Layout>
-
-      {/* 云同步配置弹窗 */}
+      {/* 云同步配置弹窗（方案B：扫码配对优先，同步码折叠为高级备用） */}
       <Modal
-        title="☁️ 云同步设置"
+        title="云同步设置"
         open={cloudModalOpen}
         onOk={handleConnectCloud}
-        onCancel={() => setCloudModalOpen(false)}
+        onCancel={closeCloudModal}
         okText="连接"
         cancelText="取消"
-        width={480}
+        width={520}
+        footer={[
+          cloudEnabled ? (
+            <button key="off" className="mini" style={{ marginRight: 8 }} onClick={handleDisconnectCloud}>
+              断开同步
+            </button>
+          ) : null,
+          <button key="cancel" className="mini" style={{ marginRight: 8 }} onClick={closeCloudModal}>
+            取消
+          </button>,
+          <button key="ok" className="mini ac" onClick={handleConnectCloud}>
+            连接
+          </button>,
+        ]}
       >
-        <div style={{ marginBottom: 20 }}>
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            <div>
-              <div style={{ marginBottom: 8, fontWeight: 500, color: '#1E293B' }}>CloudBase 环境 ID</div>
-              <Input
-                placeholder="输入环境 ID，例如：daily-notes-xxx"
-                value={cloudEnvId}
-                onChange={(e) => setCloudEnvId(e.target.value)}
-                size="large"
-                style={{ borderRadius: 10 }}
+        {/* 方案B：用手机小程序扫码绑定（推荐入口） */}
+        <div className="pair-box">
+          <div className="pair-head">用手机小程序绑定（推荐）</div>
+          <p className="pair-desc">电脑显示二维码，手机打开计序小程序 → 云同步 → 扫码绑定电脑</p>
+          {!pairReq ? (
+            <button className="mini ac" onClick={handleGeneratePairQr} disabled={pairLoading}>
+              {pairLoading ? '正在生成…' : '生成绑定二维码'}
+            </button>
+          ) : (
+            <div className="pair-qr">
+              <QRCode
+                value={JSON.stringify({ v: 1, t: 'jixu-pair', pid: pairReq.pairingId, code: pairReq.shortCode, name: PAIR_DEVICE_NAME })}
+                size={168}
+                color="#000000"
+                bgColor="#ffffff"
               />
+              <div className="pair-code">{pairReq.shortCode}</div>
+              <p className="pair-hint">手机扫码，或在手机小程序「云同步」里输入上方 6 位配对码</p>
+              {pairWaiting && <p className="pair-wait">等待手机确认…</p>}
+              <button className="mini" onClick={handleGeneratePairQr} disabled={pairLoading}>
+                重新生成
+              </button>
             </div>
-            <div>
-              <div style={{ marginBottom: 8, fontWeight: 500, color: '#1E293B' }}>同步码（同一本账的钥匙）</div>
-              <Space.Compact style={{ width: '100%' }}>
-                <Input
-                  placeholder="输入小程序上显示的同步码，或直接点右边生成"
-                  value={cloudCode}
-                  onChange={(e) => setCloudCode(e.target.value)}
-                  size="large"
-                  style={{ borderRadius: '10px 0 0 10px', letterSpacing: 1 }}
-                />
-                <Button size="large" onClick={() => setCloudCode(formatOwnerId(newOwnerId()))}>重新生成</Button>
-                <Button size="large" icon={<CopyOutlined />}
-                  onClick={() => { navigator.clipboard.writeText(cloudCode); message.success('同步码已复制，去小程序里粘贴即可') }} />
-              </Space.Compact>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                手机小程序和电脑输入同一个码 = 同一本账；别人用你的安装包也会自动分到各自的账本，互相看不到
-              </Text>
+          )}
+          {pairError && <p className="pair-error">{pairError}</p>}
+        </div>
+
+        <div className="fields" style={{ gridTemplateColumns: '84px minmax(0,1fr)' }}>
+          <span className="lb">环境 ID</span>
+          <div className="fv">
+            <Input
+              placeholder="输入环境 ID，例如：daily-notes-xxx"
+              value={cloudEnvId}
+              onChange={(e) => setCloudEnvId(e.target.value)}
+            />
+          </div>
+        </div>
+        <p className="pair-env-hint">
+          环境 ID 在腾讯云 CloudBase 控制台「环境设置」里复制，并开启<strong style={{ color: 'var(--tx)' }}>匿名登录</strong>。
+        </p>
+
+        {/* 原同步码输入折叠为「高级（备用同步码）」，保留输入 / 重新生成 / 复制 */}
+        <details className="adv">
+          <summary>高级（备用同步码）</summary>
+          <div className="fields" style={{ gridTemplateColumns: '84px minmax(0,1fr)' }}>
+            <span className="lb">同步码</span>
+            <div className="fv">
+              <Input
+                placeholder="输入小程序上显示的同步码"
+                value={cloudCode}
+                onChange={(e) => setCloudCode(e.target.value)}
+                style={{ letterSpacing: 1 }}
+              />
+              <button className="mini" onClick={() => setCloudCode(formatOwnerId(newOwnerId()))}>重新生成</button>
+              <button
+                className="mini"
+                onClick={() => { navigator.clipboard.writeText(cloudCode); message.success('同步码已复制，去小程序里粘贴即可') }}
+              >
+                <Icon n="copy" cls="s" />
+              </button>
             </div>
-            <div style={{
-              background: '#FFFBF8', border: '1px solid #FFE0CC',
-              borderRadius: 10, padding: 14, fontSize: 13, color: '#B45309',
-            }}>
-              <p style={{ margin: 0, lineHeight: 1.6 }}>
-                💡 <strong>如何获取环境 ID？</strong><br />
-                1. 打开 <a href="https://console.cloud.tencent.com/tcb" target="_blank" rel="noreferrer">腾讯云 CloudBase 控制台</a><br />
-                2. 创建或选择一个环境<br />
-                3. 在「环境设置」中开启<strong>匿名登录</strong><br />
-                4. 复制环境 ID 粘贴到上方
+            <span className="lb">说明</span>
+            <div className="fv" style={{ alignItems: 'flex-start' }}>
+              <p style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--dim)', margin: 0 }}>
+                手机小程序和电脑输入同一个码 = 同一本账；别人用你的安装包也会自动分到各自的账本，互相看不到。
+                扫码绑定失败时，可在这里手动输入同步码后点「连接」。
               </p>
             </div>
-          </Space>
-        </div>
+          </div>
+        </details>
       </Modal>
 
       {/* 快捷键设置弹窗 */}
       <Modal
         title="自定义快捷键"
         open={shortcutModalOpen}
-        onOk={saveShortcut}
         onCancel={() => setShortcutModalOpen(false)}
-        okText="保存"
-        cancelText="取消"
-        width={420}
+        width={440}
+        footer={[
+          <button key="cancel" className="mini" style={{ marginRight: 8 }} onClick={() => setShortcutModalOpen(false)}>
+            取消
+          </button>,
+          <button key="ok" className="mini ac" onClick={saveShortcut}>
+            保存
+          </button>,
+        ]}
       >
-        <p style={{ color: '#64748B', marginBottom: 16, lineHeight: 1.8 }}>
+        <p style={{ color: 'var(--dim)', fontSize: 12, lineHeight: 1.8, marginBottom: 14 }}>
           输入想要的快捷键组合，修改后立即生效。常用格式：
-          <code style={{ margin: '0 4px', background: '#F1F5F9', padding: '2px 6px', borderRadius: 4 }}>Ctrl+Shift+N</code>
-          <code style={{ margin: '0 4px', background: '#F1F5F9', padding: '2px 6px', borderRadius: 4 }}>Alt+Space</code>
-          <code style={{ marginLeft: 4, background: '#F1F5F9', padding: '2px 6px', borderRadius: 4 }}>Ctrl+Shift+K</code>
+          <span className="kbd" style={{ margin: '0 4px' }}>Ctrl+Shift+N</span>
+          <span className="kbd" style={{ margin: '0 4px' }}>Alt+Space</span>
+          <span className="kbd" style={{ marginLeft: 4 }}>Ctrl+Shift+K</span>
         </p>
         <div
           tabIndex={0}
           onKeyDown={handleKeyCapture}
           onClick={(e) => (e.target as HTMLElement).focus()}
           style={{
-            border: '2px solid #FF6B35',
-            borderRadius: 12,
-            padding: '12px 18px',
-            fontSize: 18,
-            fontFamily: 'monospace',
+            border: '1px solid var(--ac)',
+            borderRadius: 2,
+            padding: '10px 16px',
+            fontSize: 17,
+            fontFamily: 'var(--mono)',
             cursor: 'pointer',
-            minHeight: 50,
+            minHeight: 48,
             display: 'flex',
             alignItems: 'center',
-            background: '#FFFBF8',
+            background: 'var(--p2)',
             outline: 'none',
-            transition: 'box-shadow 0.2s',
           }}
         >
-          {shortcutInput || <span style={{ color: '#bbb' }}>点击这里，然后按下组合键…</span>}
+          {shortcutInput || <span style={{ color: 'var(--fnt)' }}>点击这里，然后按下组合键…</span>}
         </div>
       </Modal>
-    </Layout>
+    </AppCtx.Provider>
   )
 }
 

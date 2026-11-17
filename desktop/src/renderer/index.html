@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
     <title>计序</title>
+    <script>
+      // 首帧前落主题，避免闪白：已存偏好优先，其次夜航（深色为主视觉）
+      ;(function () {
+        try {
+          var t = localStorage.getItem('jixu-theme')
+          if (t !== 'light' && t !== 'dark') t = 'dark'
+          document.documentElement.dataset.theme = t
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

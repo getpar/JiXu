@@ -7,14 +7,16 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,15 +25,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -47,13 +48,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -62,7 +63,6 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jixu.app.AppContainer
 import com.jixu.app.core.AMOUNT_INPUT_MAX_LENGTH
-import com.jixu.app.core.CategoryGroup
 import com.jixu.app.core.DEFAULT_CATEGORIES
 import com.jixu.app.core.formatMoneyExact
 import com.jixu.app.core.localDateStr
@@ -71,20 +71,22 @@ import com.jixu.app.core.sanitizeAmountInput
 import com.jixu.app.data.NewTodo
 import com.jixu.app.data.db.TodoEntity
 import com.jixu.app.notify.ReminderScheduler
-import com.jixu.app.ui.screens.common.JxCard
-import com.jixu.app.ui.screens.common.JxConfirmDialog
-import com.jixu.app.ui.screens.common.JxDialog
-import com.jixu.app.ui.screens.common.JxEmpty
-import com.jixu.app.ui.screens.common.JxLabel
-import com.jixu.app.ui.screens.common.JxLink
-import com.jixu.app.ui.screens.common.JxPrimaryButton
-import com.jixu.app.ui.screens.common.JxSmallAction
-import com.jixu.app.ui.screens.common.JxTag
-import com.jixu.app.ui.screens.common.JxTextField
-import com.jixu.app.ui.screens.common.JxTopBar
+import com.jixu.app.ui.screens.common.BConfirm
+import com.jixu.app.ui.screens.common.BDialog
+import com.jixu.app.ui.screens.common.BTextField
+import com.jixu.app.ui.screens.common.BTopBar
+import com.jixu.app.ui.screens.common.Chip
+import com.jixu.app.ui.screens.common.EmptyLine
+import com.jixu.app.ui.screens.common.HLine
+import com.jixu.app.ui.screens.common.MicroLabel
+import com.jixu.app.ui.screens.common.MiniButton
+import com.jixu.app.ui.screens.common.ModuleHeader
+import com.jixu.app.ui.screens.common.Panel
 import com.jixu.app.ui.screens.common.showToast
 import com.jixu.app.ui.screens.common.todayStr
 import com.jixu.app.ui.theme.JiXuTheme
+import com.jixu.app.ui.theme.MonoFamily
+import com.jixu.app.ui.theme.SansFamily
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
@@ -110,13 +112,13 @@ private fun completedDatesOf(raw: String): List<String> = runCatching {
 }.getOrElse { emptyList() }
 
 /**
- * 待办事项（开发文档 §8.7，参照 miniapp/src/pages/todos/index.tsx）。
- * 第 3 条「通知状态卡片」按执行计划留到 P8。
+ * 待办事项（开发文档 §8.7）：周期待办 + 到期提醒 + 关联金额自动记账。
+ * 业务逻辑与旧版一致，排版换成 B 的清单语言。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
-    val colors = JiXuTheme.colors
+    val c = JiXuTheme.colors
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -140,9 +142,6 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
     var fCatKey by rememberSaveable { mutableStateOf("food") }
     var fSubKey by rememberSaveable { mutableStateOf("") }
     var fNote by rememberSaveable { mutableStateOf("") }
-    var cycleOpen by remember { mutableStateOf(false) }
-    var catOpen by remember { mutableStateOf(false) }
-    var subOpen by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
 
@@ -236,15 +235,17 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        JxTopBar(title = "待办事项", onBack = onBack) {
+        BTopBar(title = "待办事项", en = "07 · TODO", onBack = onBack) {
             Box(
                 Modifier
-                    .clip(CircleShape)
-                    .background(colors.exp)
-                    .padding(horizontal = 7.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center,
+                    .background(c.corS)
+                    .border(1.dp, c.cor)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
-                Text(undone.size.toString(), fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                Text(
+                    undone.size.toString(),
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 11.sp, color = c.cor),
+                )
             }
         }
 
@@ -261,21 +262,16 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(IntrinsicSize.Min)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.card),
+                        .background(c.ambS)
+                        .border(1.dp, c.amb.copy(alpha = 0.35f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier
-                            .width(3.dp)
-                            .fillMaxHeight()
-                            .background(colors.warn),
-                    )
+                    Box(Modifier.size(6.dp).background(c.amb))
                     Text(
                         "今天有 ${dueToday.size} 个待办到期还没完成",
-                        fontSize = 12.sp,
-                        color = colors.text,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        style = TextStyle(fontFamily = SansFamily, fontSize = 12.sp, color = c.amb),
+                        modifier = Modifier.padding(start = 10.dp),
                     )
                 }
                 Spacer(Modifier.height(10.dp))
@@ -283,57 +279,73 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
 
             ReminderStatusCard(container)
 
-            JxPrimaryButton("+ 添加待办", onClick = {
-                resetForm()
-                showAdd = true
-            })
+            MiniButton(
+                "+ 添加待办",
+                onClick = {
+                    resetForm()
+                    showAdd = true
+                },
+                primary = true,
+                height = 44.dp,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(12.dp))
 
             if (active.isEmpty()) {
-                JxEmpty("暂无待办")
+                Panel {
+                    ModuleHeader(id = "T-00", title = "待办", en = "TASKS")
+                    EmptyLine("暂无待办")
+                }
             } else {
-                Text(
-                    "进行中 (${undone.size}" +
-                        (if (doneToday.isNotEmpty()) " · 今天已完成 ${doneToday.size}" else "") + ")",
-                    fontSize = 12.sp,
-                    color = colors.exp,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "进行中",
+                        style = TextStyle(fontFamily = SansFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.tx),
+                    )
+                    Text(
+                        "(${undone.size}" + (if (doneToday.isNotEmpty()) " · 今天已完成 ${doneToday.size}" else "") + ")",
+                        style = TextStyle(fontFamily = MonoFamily, fontSize = 10.5.sp, color = c.dim),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
             }
 
-            (undone + doneToday).forEach { todo ->
+            (undone + doneToday).forEachIndexed { index, todo ->
                 val done = completedDatesOf(todo.completedDates).lastOrNull() == today
                 val due = !done && todo.nextDate <= today
                 val overdue = !done && todo.nextDate < today
                 TodoCard(
+                    index = index,
                     todo = todo,
                     done = done,
                     due = due,
                     overdue = overdue,
                     onComplete = { complete(todo) },
-                    onDisable = {
-                        scope.launch { repo.toggleTodo(todo.id, false) }
-                    },
+                    onDisable = { scope.launch { repo.toggleTodo(todo.id, false) } },
                     onDelete = { deleteId = todo.id },
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             }
 
             if (completed.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showDone = !showDone }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 10.dp),
                 ) {
+                    MicroLabel("已完成 · DONE (${completed.size})", color = c.dim)
+                    Spacer(Modifier.weight(1f))
                     Text(
-                        "已完成 (${completed.size})",
-                        fontSize = 12.sp,
-                        color = colors.sub,
-                        modifier = Modifier.weight(1f),
+                        if (showDone) "收起 ▴" else "展开 ▾",
+                        style = TextStyle(fontFamily = MonoFamily, fontSize = 10.sp, color = c.fnt),
                     )
-                    Text(if (showDone) "▲" else "▼", fontSize = 11.sp, color = colors.muted)
                 }
                 if (showDone) {
                     completed.forEach { todo ->
@@ -352,128 +364,151 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     if (showAdd) {
-        JxDialog(title = "添加待办", onDismiss = { showAdd = false }) {
-            JxLabel("标题")
-            JxTextField(
+        BDialog(title = "添加待办", en = "NEW TODO", onDismiss = { showAdd = false }) {
+            MicroLabel("标题 · TITLE", color = c.fnt)
+            BTextField(
                 value = title,
                 onValueChange = { title = it },
                 placeholder = "如：交房租、喝水",
                 maxLength = 20,
+                textSize = 14.sp,
+                modifier = Modifier.padding(top = 6.dp),
             )
+            HLine(Modifier.padding(top = 6.dp))
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("周期")
-            Box {
-                PickerRow(text = cycleLabel(fCycle)) {
-                    focusManager.clearFocus()
-                    cycleOpen = true
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("周期 · CYCLE", color = c.fnt)
+            Spacer(Modifier.height(6.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                CYCLE_KEYS.forEach { key ->
+                    Chip(cycleLabel(key), selected = fCycle == key, onClick = {
+                        fCycle = key
+                        if (key !in TIME_CYCLES) fTime = ""
+                        focusManager.clearFocus()
+                    })
                 }
-                DropdownMenu(expanded = cycleOpen, onDismissRequest = { cycleOpen = false }) {
-                    CYCLE_KEYS.forEach { key ->
-                        DropdownMenuItem(
-                            text = { Text(cycleLabel(key), color = if (key == fCycle) colors.accent else colors.text) },
-                            onClick = {
-                                fCycle = key
-                                if (key !in TIME_CYCLES) fTime = ""
-                                cycleOpen = false
-                            },
-                        )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            MicroLabel(if (fCycle == "once") "截止日期 · DUE" else "首次日期 · NEXT", color = c.fnt)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        focusManager.clearFocus()
+                        showDatePicker = true
                     }
-                }
+                    .padding(vertical = 10.dp),
+            ) {
+                Text(
+                    fNextDate,
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 13.sp, color = c.tx),
+                    modifier = Modifier.weight(1f),
+                )
+                Text("›", style = TextStyle(fontFamily = MonoFamily, fontSize = 14.sp, color = c.fnt))
             }
-
-            Spacer(Modifier.height(12.dp))
-            JxLabel(if (fCycle == "once") "截止日期" else "首次日期")
-            PickerRow(text = fNextDate) {
-                focusManager.clearFocus()
-                showDatePicker = true
-            }
+            HLine()
 
             if (fCycle in TIME_CYCLES) {
-                Spacer(Modifier.height(12.dp))
-                JxLabel("具体时间（可选）")
-                PickerRow(text = fTime.ifEmpty { "不限" }, placeholder = fTime.isEmpty()) {
-                    focusManager.clearFocus()
-                    showTimePicker = true
+                Spacer(Modifier.height(14.dp))
+                MicroLabel("具体时间 · TIME（可选）", color = c.fnt)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            focusManager.clearFocus()
+                            showTimePicker = true
+                        }
+                        .padding(vertical = 10.dp),
+                ) {
+                    Text(
+                        fTime.ifEmpty { "不限" },
+                        style = TextStyle(
+                            fontFamily = MonoFamily,
+                            fontSize = 13.sp,
+                            color = if (fTime.isEmpty()) c.fnt else c.tx,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("›", style = TextStyle(fontFamily = MonoFamily, fontSize = 14.sp, color = c.fnt))
                 }
+                HLine()
             }
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("关联金额（可选）")
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("关联金额 · AMOUNT（可选）", color = c.fnt)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("¥", fontSize = 22.sp, fontWeight = FontWeight.Medium, color = colors.accent)
+                Text("¥", style = TextStyle(fontFamily = MonoFamily, fontSize = 18.sp, color = c.dim))
                 Spacer(Modifier.width(8.dp))
-                JxTextField(
+                BTextField(
                     value = fAmount,
                     onValueChange = { fAmount = sanitizeAmountInput(it) },
                     placeholder = "填了自动记账",
                     maxLength = AMOUNT_INPUT_MAX_LENGTH,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    textSize = 22.sp,
+                    textSize = 20.sp,
+                    mono = true,
                     modifier = Modifier.weight(1f),
                 )
             }
+            HLine(Modifier.padding(top = 6.dp))
 
             if (hasAmount) {
-                Spacer(Modifier.height(12.dp))
-                JxLabel("一级分类")
-                Box {
-                    PickerRow(text = currentCat?.name ?: "请选择", placeholder = currentCat == null) {
-                        focusManager.clearFocus()
-                        catOpen = true
-                    }
-                    DropdownMenu(expanded = catOpen, onDismissRequest = { catOpen = false }) {
-                        cats.forEach { c ->
-                            DropdownMenuItem(
-                                text = { Text(c.name, color = if (c.key == fCatKey) colors.accent else colors.text) },
-                                onClick = {
-                                    if (c.key != fCatKey) {
-                                        fCatKey = c.key
-                                        fSubKey = ""
-                                    }
-                                    catOpen = false
-                                },
-                            )
-                        }
+                Spacer(Modifier.height(14.dp))
+                MicroLabel("一级分类 · CATEGORY", color = c.fnt)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    cats.forEach { cat ->
+                        Chip(cat.name, selected = fCatKey == cat.key, onClick = {
+                            if (fCatKey != cat.key) {
+                                fCatKey = cat.key
+                                fSubKey = ""
+                            }
+                        })
                     }
                 }
-
                 Spacer(Modifier.height(12.dp))
-                JxLabel("二级分类")
-                Box {
-                    val subName = subs.firstOrNull { it.key == fSubKey }?.name
-                    PickerRow(text = subName ?: "选择小类", placeholder = subName == null) {
-                        focusManager.clearFocus()
-                        subOpen = true
-                    }
-                    DropdownMenu(expanded = subOpen, onDismissRequest = { subOpen = false }) {
-                        subs.forEach { s ->
-                            DropdownMenuItem(
-                                text = { Text(s.name, color = if (s.key == fSubKey) colors.accent else colors.text) },
-                                onClick = {
-                                    fSubKey = s.key
-                                    subOpen = false
-                                },
-                            )
-                        }
+                MicroLabel("二级分类 · SUB", color = c.fnt)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    subs.forEach { s ->
+                        Chip(s.name, selected = fSubKey == s.key, onClick = { fSubKey = s.key })
                     }
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            JxLabel("备注（可选）")
-            JxTextField(
+            Spacer(Modifier.height(14.dp))
+            MicroLabel("备注 · NOTE（可选）", color = c.fnt)
+            BTextField(
                 value = fNote,
                 onValueChange = { fNote = it },
                 placeholder = "补充说明",
                 maxLength = 30,
+                textSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp),
             )
+            HLine(Modifier.padding(top = 6.dp))
 
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Spacer(Modifier.weight(1f))
-                JxLink("取消", onClick = { showAdd = false }, color = colors.sub, size = 14.sp)
-                JxLink("添加", onClick = { addTodo() }, size = 14.sp)
+                MiniButton("取消", onClick = { showAdd = false })
+                MiniButton("添加", onClick = { addTodo() }, primary = true)
             }
         }
     }
@@ -526,9 +561,10 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     deleteId?.let { id ->
-        JxConfirmDialog(
+        BConfirm(
             title = "确定删除？",
             message = "删除后无法恢复",
+            confirmText = "删除",
             onDismiss = { deleteId = null },
             onConfirm = {
                 deleteId = null
@@ -540,7 +576,7 @@ fun TodosScreen(container: AppContainer, onBack: () -> Unit) {
 
 @Composable
 private fun ReminderStatusCard(container: AppContainer) {
-    val colors = JiXuTheme.colors
+    val c = JiXuTheme.colors
     val context = LocalContext.current
     var notificationsEnabled by remember { mutableStateOf(ReminderScheduler.notificationsEnabled(context)) }
     var exactAllowed by remember { mutableStateOf(ReminderScheduler.canScheduleExact(context)) }
@@ -568,21 +604,26 @@ private fun ReminderStatusCard(container: AppContainer) {
         }
     }
 
-    JxCard {
-        Text("到期提醒", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = colors.text)
-        Spacer(Modifier.height(4.dp))
+    Panel(contentPadding = PaddingValues(14.dp)) {
+        ModuleHeader(id = "T-REM", title = "到期提醒", en = "REMINDER") {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .background(if (notificationsEnabled) c.acF else c.fnt),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
             if (notificationsEnabled) {
                 "到期提醒已开启 · 每天 08:00 和设定时间提醒你"
             } else {
                 "开启后，每天 08:00 汇总到期待办，设了具体时间的待办到点提醒"
             },
-            fontSize = 12.sp,
-            color = colors.sub,
+            style = TextStyle(fontFamily = SansFamily, fontSize = 11.5.sp, lineHeight = 18.sp, color = c.dim),
         )
         if (!notificationsEnabled) {
-            Spacer(Modifier.height(6.dp))
-            JxLink("开启到期提醒", onClick = {
+            Spacer(Modifier.height(10.dp))
+            MiniButton("开启到期提醒", onClick = {
                 val needsRuntimePermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(
                         context,
@@ -594,49 +635,57 @@ private fun ReminderStatusCard(container: AppContainer) {
                     // 权限已被用户拒绝过/通知被系统关闭：只能去系统设置里打开
                     openSystem(ReminderScheduler.openNotificationSettingsIntent(context))
                 }
-            })
+            }, primary = true)
         }
         if (notificationsEnabled && !exactAllowed) {
-            Spacer(Modifier.height(6.dp))
-            JxLink("提醒可能延迟，点这里允许准时提醒", onClick = {
+            Spacer(Modifier.height(8.dp))
+            MiniButton("提醒可能延迟，点这里允许准时提醒", onClick = {
                 openSystem(ReminderScheduler.openExactAlarmSettingsIntent(context))
             })
         }
-        Spacer(Modifier.height(6.dp))
-        JxLink(
-            "部分手机需允许后台运行才能准时提醒",
-            onClick = { openSystem(ReminderScheduler.openAppDetailsIntent(context)) },
-            color = colors.sub,
-            size = 12.sp,
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "部分手机需允许后台运行才能准时提醒 ›",
+            style = TextStyle(fontFamily = SansFamily, fontSize = 11.sp, color = c.fnt),
+            modifier = Modifier.clickable { openSystem(ReminderScheduler.openAppDetailsIntent(context)) },
         )
     }
     Spacer(Modifier.height(10.dp))
 }
 
 @Composable
-private fun PickerRow(text: String, placeholder: Boolean = false, onClick: () -> Unit) {
-    val colors = JiXuTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+private fun TodoCheck(done: Boolean) {
+    val c = JiXuTheme.colors
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(7.dp))
-            .background(colors.soft)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .size(22.dp)
+            .background(if (done) c.acF else androidx.compose.ui.graphics.Color.Transparent)
+            .border(1.5.dp, if (done) c.acF else c.ln2),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text,
-            fontSize = 14.sp,
-            color = if (placeholder) colors.faint else colors.text,
-            modifier = Modifier.weight(1f),
-        )
-        Text("▼", fontSize = 9.sp, color = colors.muted)
+        if (done) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = c.onAc,
+                modifier = Modifier.size(15.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun Tag(text: String, fg: androidx.compose.ui.graphics.Color, bg: androidx.compose.ui.graphics.Color) {
+    Box(
+        Modifier.background(bg).padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(text, style = TextStyle(fontFamily = SansFamily, fontSize = 10.sp, color = fg), maxLines = 1)
     }
 }
 
 @Composable
 private fun TodoCard(
+    index: Int,
     todo: TodoEntity,
     done: Boolean,
     due: Boolean,
@@ -645,102 +694,105 @@ private fun TodoCard(
     onDisable: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val colors = JiXuTheme.colors
-    val border = when {
-        done -> colors.inc
-        due -> colors.warn
-        else -> Color.Transparent
+    val c = JiXuTheme.colors
+    val accent = when {
+        done -> c.inc
+        overdue -> c.cor
+        due -> c.amb
+        else -> c.fnt
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (done) colors.soft else colors.card),
-    ) {
-        if (border != Color.Transparent) {
-            Box(Modifier.width(3.dp).fillMaxHeight().background(border))
-        }
-        Column(Modifier.weight(1f).padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    JxTag(
+    Panel(contentPadding = PaddingValues(14.dp)) {
+        Row {
+            Column(
+                Modifier
+                    .padding(top = 1.dp)
+                    .clickable { if (!done) onComplete() },
+            ) {
+                TodoCheck(done)
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MicroLabel("T-" + (index + 1).toString().padStart(2, '0'), color = c.fnt)
+                    Spacer(Modifier.width(8.dp))
+                    Tag(
                         cycleLabel(todo.cycle) + if (overdue) " 已过期" else "",
-                        fg = if (overdue) colors.exp else colors.sub,
-                        bg = if (overdue) colors.expSoft else colors.soft,
+                        fg = accent,
+                        bg = c.p3,
                     )
                     if (done) {
-                        JxTag("✓ 今天已完成", fg = colors.inc, bg = colors.incSoft)
+                        Spacer(Modifier.width(6.dp))
+                        Tag("今天已完成", fg = c.inc, bg = c.incS)
                     } else if (due) {
-                        JxTag("今天到期", fg = colors.warn, bg = colors.warnSoft)
+                        Spacer(Modifier.width(6.dp))
+                        Tag("今天到期", fg = c.amb, bg = c.ambS)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (done) {
+                            "下次 ${mmdd(todo.nextDate)}"
+                        } else {
+                            mmdd(todo.nextDate) + (if (!todo.time.isNullOrEmpty()) " ${todo.time}" else "")
+                        },
+                        style = TextStyle(fontFamily = MonoFamily, fontSize = 10.sp, color = c.dim),
+                    )
+                }
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    todo.title,
+                    style = TextStyle(
+                        fontFamily = SansFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (done) c.dim else c.tx,
+                        textDecoration = if (done) TextDecoration.LineThrough else null,
+                    ),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val amount = todo.amount
+                if (amount != null && amount > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "¥" + formatMoneyExact(amount),
+                            style = TextStyle(fontFamily = MonoFamily, fontSize = 12.5.sp, color = c.amb),
+                        )
+                        if (!todo.categoryName.isNullOrEmpty()) {
+                            Text(
+                                "· ${todo.categoryName} / ${todo.subcategoryName}",
+                                style = TextStyle(fontFamily = SansFamily, fontSize = 10.5.sp, color = c.fnt),
+                                modifier = Modifier.padding(start = 6.dp),
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
-                Text(
-                    if (done) "下次 ${mmdd(todo.nextDate)}"
-                    else mmdd(todo.nextDate) + (if (!todo.time.isNullOrEmpty()) " ${todo.time}" else ""),
-                    fontSize = 11.sp,
-                    color = colors.muted,
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                todo.title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (done) colors.muted else colors.text,
-                textDecoration = if (done) TextDecoration.LineThrough else null,
-            )
-            val amount = todo.amount
-            if (amount != null && amount > 0) {
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!todo.note.isNullOrEmpty()) {
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "¥" + formatMoneyExact(amount),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.warn,
+                        todo.note,
+                        style = TextStyle(fontFamily = SansFamily, fontSize = 11.sp, color = c.fnt),
+                        maxLines = 2,
                     )
-                    if (!todo.categoryName.isNullOrEmpty()) {
-                        Spacer(Modifier.width(6.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (done) {
                         Text(
-                            "· ${todo.categoryName} - ${todo.subcategoryName}",
-                            fontSize = 11.sp,
-                            color = colors.muted,
+                            "✓ 今天已完成",
+                            style = TextStyle(fontFamily = SansFamily, fontSize = 12.sp, color = c.inc),
+                        )
+                    } else {
+                        MiniButton(
+                            if (amount != null && amount > 0) "✓ 完成并记账" else "✓ 完成",
+                            onClick = onComplete,
+                            primary = true,
+                            height = 32.dp,
                         )
                     }
+                    MiniButton("停用", onClick = onDisable, height = 32.dp)
+                    MiniButton("删除", onClick = onDelete, danger = true, height = 32.dp)
                 }
-            }
-            if (!todo.note.isNullOrEmpty()) {
-                Spacer(Modifier.height(3.dp))
-                Text(todo.note, fontSize = 11.sp, color = colors.faint)
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (done) {
-                    Text(
-                        "✓ 今天已完成",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.incSoft)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.inc,
-                    )
-                } else {
-                    JxSmallAction(
-                        if (amount != null && amount > 0) "✓ 完成并记账" else "✓ 完成",
-                        onClick = onComplete,
-                        fg = Color.White,
-                        bg = colors.inc,
-                    )
-                }
-                JxSmallAction("停用", onClick = onDisable, fg = colors.sub, bg = colors.soft)
-                JxSmallAction("删除", onClick = onDelete, fg = colors.exp, bg = colors.expSoft)
             }
         }
     }
@@ -748,30 +800,36 @@ private fun TodoCard(
 
 @Composable
 private fun DoneTodoRow(todo: TodoEntity, onEnable: () -> Unit, onDelete: () -> Unit) {
-    val colors = JiXuTheme.colors
+    val c = JiXuTheme.colors
     val dates = completedDatesOf(todo.completedDates)
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.soft)
+            .background(c.p1)
+            .border(1.dp, c.ln)
             .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(todo.title, fontSize = 14.sp, color = colors.sub)
-        Spacer(Modifier.height(3.dp))
-        Text(
-            cycleLabel(todo.cycle) +
-                (if (dates.isNotEmpty()) " · 最后完成 ${dates.last()}" else "") +
-                (if (!todo.isActive) " · 已停用" else ""),
-            fontSize = 11.sp,
-            color = colors.faint,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!todo.isActive) {
-                JxSmallAction("重新启用", onClick = onEnable, fg = colors.inc, bg = colors.incSoft)
-            }
-            JxSmallAction("删除", onClick = onDelete, fg = colors.exp, bg = colors.expSoft)
+        Column(Modifier.weight(1f)) {
+            Text(
+                todo.title,
+                style = TextStyle(fontFamily = SansFamily, fontSize = 13.sp, color = c.dim),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                cycleLabel(todo.cycle) +
+                    (if (dates.isNotEmpty()) " · 最后完成 ${dates.last()}" else "") +
+                    (if (!todo.isActive) " · 已停用" else ""),
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 10.sp, color = c.fnt),
+                modifier = Modifier.padding(top = 3.dp),
+                maxLines = 1,
+            )
         }
+        if (!todo.isActive) {
+            MiniButton("重新启用", onClick = onEnable, height = 30.dp)
+            Spacer(Modifier.width(6.dp))
+        }
+        MiniButton("删除", onClick = onDelete, danger = true, height = 30.dp)
     }
 }

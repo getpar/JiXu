@@ -1,298 +1,332 @@
-import { formatMoney } from '../utils/money'
-import { useState, useEffect } from 'react'
-import { Card, DatePicker, Typography, Row, Col, Statistic, Empty, Spin, Space, Segmented } from 'antd'
-import { PieChartOutlined, RiseOutlined } from '@ant-design/icons'
-import { Pie, Column, Line } from '@ant-design/charts'
-import dayjs, { Dayjs } from 'dayjs'
+import { useState, useEffect, useMemo } from 'react'
+import dayjs from 'dayjs'
+import {
+  Mod, Icon, CatIcon, HeroAmount, Ro, Seg, MonthSwitch, cssVar,
+  F, p2, kf, daysInMonth, todayStr, dateLabel, weekday,
+} from '../components/ui'
+import type { MonthlyStat } from '../types/electron'
 
-const { Title, Text } = Typography
-
-// 现代化分类配色
-const catColors: Record<string, string> = {
-  food: '#EF4444', transport: '#3B82F6', shopping: '#8B5CF6',
-  housing: '#F97316', entertainment: '#10B981', medical: '#EC4899',
-  education: '#06B6D4', social: '#F59E0B', finance: '#6366F1',
-  other: '#6B7280', income: '#10B981',
+interface DayPoint {
+  date: string
+  total: number
+  future: boolean
 }
 
-function getColors(stats: any[]) { return stats.map(s => catColors[s.category_key] || '#6B7280') }
+const arcD = (r: number, a0: number, a1: number): string => {
+  const P = (a: number): string => {
+    const t = (a * Math.PI) / 180
+    return `${(120 + r * Math.cos(t)).toFixed(2)} ${(120 + r * Math.sin(t)).toFixed(2)}`
+  }
+  return `M${P(a0)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${P(a1)}`
+}
 
 function StatsPage(): JSX.Element {
-  const [selectedMonth, setSelectedMonth] = useState<Dayjs>(dayjs())
-  const [stats, setStats] = useState<any[]>([])
-  const [dailyTrend, setDailyTrend] = useState<any[]>([])
-  const [totalAmount, setTotalAmount] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [recordType, setRecordType] = useState<string>('expense')
-  const [compareMonth, setCompareMonth] = useState<Dayjs>(dayjs().subtract(1, 'month'))
-  const [compareData, setCompareData] = useState<any>(null)
+  const currentMonth = todayStr().slice(0, 7)
+  const [ym, setYm] = useState(currentMonth)
+  const [recordType, setRecordType] = useState<'expense' | 'income'>('expense')
+  const [stats, setStats] = useState<MonthlyStat[]>([])
+  const [total, setTotal] = useState(0)
+  const [incomeTotal, setIncomeTotal] = useState(0)
+  const [trend, setTrend] = useState<DayPoint[]>([])
+  const [budget, setBudget] = useState(0)
+  const [six, setSix] = useState<Array<{ month: string; expense: number; income: number }>>([])
+  const [ri, setRi] = useState(0)
+  const [hi, setHi] = useState<number | null>(null)
 
-  useEffect(() => { loadStats() }, [selectedMonth, recordType])
-  useEffect(() => { loadCompare() }, [compareMonth, selectedMonth])
+  useEffect(() => { loadBudget() }, [])
+
+  useEffect(() => { loadStats() }, [ym, recordType])
+  useEffect(() => { loadSix() }, [ym])
+
+  async function loadBudget(): Promise<void> {
+    const v = await window.electronAPI.getSetting('monthly_budget')
+    if (v) setBudget(parseFloat(v) || 0)
+  }
 
   async function loadStats(): Promise<void> {
-    setLoading(true)
-    try {
-      const month = selectedMonth.format('YYYY-MM')
-      const [ms, total, trend] = await Promise.all([
-        window.electronAPI.getMonthlyStats(month, recordType),
-        window.electronAPI.getMonthlyTotal(month, recordType),
-        window.electronAPI.getDailyTrend(month, recordType),
-      ])
-      setStats(ms); setTotalAmount(total); setDailyTrend(trend)
-    } finally { setLoading(false) }
+    const [ms, tot, inc, tr] = await Promise.all([
+      window.electronAPI.getMonthlyStats(ym, recordType),
+      window.electronAPI.getMonthlyTotal(ym, recordType),
+      window.electronAPI.getMonthlyTotal(ym, 'income'),
+      window.electronAPI.getDailyTrend(ym, recordType),
+    ])
+    setStats(ms)
+    setTotal(tot)
+    setIncomeTotal(inc)
+    setRi(0)
+    setHi(null)
+
+    const n = daysInMonth(ym)
+    const map: Record<string, number> = {}
+    for (const d of tr) map[d.date] = d.total
+    const today = todayStr()
+    const days: DayPoint[] = []
+    for (let d = 1; d <= n; d++) {
+      const ds = `${ym}-${p2(d)}`
+      days.push({ date: ds, total: map[ds] || 0, future: ds > today })
+    }
+    setTrend(days)
   }
 
-  async function loadCompare(): Promise<void> {
-    const result = await window.electronAPI.compareMonths(selectedMonth.format('YYYY-MM'), compareMonth.format('YYYY-MM'))
-    setCompareData(result)
+  async function loadSix(): Promise<void> {
+    const base = dayjs(ym + '-01')
+    const months = Array.from({ length: 6 }, (_, i) => base.subtract(5 - i, 'month').format('YYYY-MM'))
+    const rows = await Promise.all(
+      months.map(async (m) => {
+        const [e, i] = await Promise.all([
+          window.electronAPI.getMonthlyTotal(m, 'expense'),
+          window.electronAPI.getMonthlyTotal(m, 'income'),
+        ])
+        return { month: m, expense: e, income: i }
+      }),
+    )
+    setSix(rows)
   }
 
-  const pieData = stats.map(i => ({ type: i.category_name, value: i.total }))
-  const columnData = stats.map(i => ({ category: i.category_name, amount: i.total }))
-  const lineData = dailyTrend.map(i => ({ date: i.date, amount: i.total }))
+  const sum = useMemo(() => stats.reduce((s, c) => s + c.total, 0), [stats])
+  const list = useMemo(() => stats.map((c) => ({ ...c, share: sum > 0 ? c.total / sum : 0 })), [stats, sum])
+  const cur = list[Math.min(ri, Math.max(0, list.length - 1))]
+  const maxShare = list[0]?.share || 1
 
-  const pieConfig = {
-    data: pieData,
-    angleField: 'value',
-    colorField: 'type',
-    radius: 0.85,
-    innerRadius: 0.55,
-    label: {
-      text: (d: any) => `${d.type}\n¥${formatMoney(Number(d.value), 0)}`,
-      position: 'outside' as const,
-      style: { fontSize: 11, fill: '#64748B' },
-    },
-    legend: { color: { position: 'bottom' as const } },
-    color: getColors(stats),
-    style: { stroke: '#fff', lineWidth: 2 },
-  }
+  const past = trend.filter((d) => !d.future)
+  const peak = past.reduce<DayPoint>((m, d) => (d.total > m.total ? d : m), past[0] || { date: '', total: 0, future: false })
+  const avg = total / Math.max(1, past.length)
 
-  const columnConfig = {
-    data: columnData,
-    xField: 'category',
-    yField: 'amount',
-    colorField: 'category',
-    label: {
-      text: (d: any) => `¥${formatMoney(Number(d.amount), 0)}`,
-      position: 'top' as const,
-      style: { fontSize: 11, fill: '#64748B' },
-    },
-    legend: false,
-    color: getColors(stats),
-    axis: { x: { labelAutoRotate: true } },
-    style: { radiusTopLeft: 8, radiusTopRight: 8 },
-  }
+  /* ---------- oscilloscope ---------- */
+  const osc = useMemo(() => {
+    const n = trend.length || daysInMonth(ym)
+    const vals = trend.map((x) => x.total).sort((a, b) => b - a)
+    let cap = vals[0] || 100
+    if (vals[1] && vals[0] > vals[1] * 2.4) cap = vals[1] * 1.3
+    const p = Math.pow(10, Math.floor(Math.log10(cap))) / 2
+    cap = Math.ceil(cap / p) * p
+    const dailyBudget = budget > 0 ? budget / n : 0
+    return { n, cap, dailyBudget }
+  }, [trend, budget, ym])
 
-  const lineConfig = {
-    data: lineData,
-    xField: 'date',
-    yField: 'amount',
-    point: { size: 4, shape: 'circle' as const, style: { fill: '#FF6B35', lineWidth: 2, stroke: '#fff' } },
-    label: {
-      text: (d: any) => (Number(d.amount) > 0 ? `¥${formatMoney(Number(d.amount), 0)}` : ''),
-      style: { fontSize: 10, fill: '#64748B' },
-    },
-    smooth: true,
-    style: { line: { stroke: '#FF6B35', lineWidth: 2.5 } },
-  }
+  const sixMax = Math.max(...six.map((x) => Math.max(x.expense, x.income)), 1)
+  const sixExp = six.reduce((s, x) => s + x.expense, 0)
+  const sixInc = six.reduce((s, x) => s + x.income, 0)
+
+  const hoverDay = hi !== null ? trend[hi] : null
 
   return (
-    <div>
-      {/* 标题 */}
-      <div style={{ marginBottom: 20 }}>
-        <Text type="secondary" style={{ fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          统计分析
-        </Text>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#1E293B' }}>📊 数据洞察</div>
-      </div>
-
-      {/* 控制栏 */}
-      <Card styles={{ body: { padding: '16px 24px' } }} style={{ marginBottom: 20 }}>
-        <Space wrap size={16}>
-          <DatePicker
-            picker="month"
-            value={selectedMonth}
-            onChange={d => setSelectedMonth(d || dayjs())}
-            allowClear={false}
-            format="YYYY年M月"
-            size="large"
-            style={{ borderRadius: 10 }}
-          />
-          <Segmented
-            value={recordType}
-            onChange={v => setRecordType(v as string)}
-            options={[
-              { label: '📤 支出', value: 'expense' },
-              { label: '📥 收入', value: 'income' },
-            ]}
-          />
-          <div style={{
-            marginLeft: 16, paddingLeft: 16, borderLeft: '1px solid #E2E8F0',
-          }}>
-            <Text type="secondary" style={{ fontSize: 13 }}>合计：</Text>
-            <Text strong style={{
-              fontSize: 22,
-              color: recordType === 'income' ? '#10B981' : '#EF4444',
-              fontVariantNumeric: 'tabular-nums',
-            }}>
-              ¥{formatMoney(totalAmount)}
-            </Text>
-          </div>
-        </Space>
-      </Card>
-
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 100 }}>
-          <Spin size="large" />
+    <div className="grid">
+      {/* S-01 收支总览 */}
+      <Mod
+        id="S-01"
+        className="s-4 tot"
+        title="收支总览"
+        en="TOTALS"
+        right={<MonthSwitch ym={ym} onChange={setYm} ticks={false} />}
+      >
+        <span className="lb">
+          <b>{recordType === 'income' ? '收入' : '支出'}</b>
+          {recordType === 'income' ? 'INCOME' : 'EXPENSE'}
+        </span>
+        <HeroAmount v={total} />
+        <div className="ros" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+          <Ro cn="收入" en="INCOME" v={incomeTotal} cls="inc" />
+          <Ro cn="结余" en="BALANCE" v={incomeTotal - total} />
         </div>
-      ) : stats.length === 0 ? (
-        <Card><Empty description="暂无数据" /></Card>
-      ) : (
-        <>
-          {/* 统计小卡片 */}
-          <Row gutter={16} style={{ marginBottom: 20 }}>
-            <Col span={6}>
-              <div className="stat-mini-card">
-                <Statistic
-                  title="合计"
-                  value={totalAmount}
-                  precision={2}
-                  prefix="¥"
-                  valueStyle={{ color: recordType === 'income' ? '#10B981' : '#EF4444', fontSize: 22, fontWeight: 700 }}
-                />
-              </div>
-            </Col>
-            <Col span={6}>
-              <div className="stat-mini-card">
-                <Statistic
-                  title="类别数"
-                  value={stats.length}
-                  suffix="个"
-                  prefix={<PieChartOutlined style={{ color: '#FF6B35' }} />}
-                  valueStyle={{ fontSize: 22, fontWeight: 700 }}
-                />
-              </div>
-            </Col>
-            <Col span={6}>
-              <div className="stat-mini-card">
-                <Statistic
-                  title="日均"
-                  value={totalAmount / Math.max(dayjs().date(), 1)}
-                  precision={2}
-                  prefix="¥"
-                  valueStyle={{ fontSize: 22, fontWeight: 700 }}
-                />
-              </div>
-            </Col>
-            <Col span={6}>
-              <div className="stat-mini-card">
-                <Statistic
-                  title="最高类别"
-                  value={stats[0]?.category_name || '-'}
-                  suffix={stats[0] ? `¥${formatMoney(stats[0].total, 0)}` : ''}
-                  valueStyle={{ fontSize: 18, fontWeight: 700 }}
-                />
-              </div>
-            </Col>
-          </Row>
+        <div className="kv">
+          <span>日均支出</span>
+          <span className="num">¥{F(avg)}</span>
+        </div>
+        <div className="kv">
+          <span>最高单日 · {peak.date ? dateLabel(peak.date) : '—'}</span>
+          <span className="num">¥{F(peak.total)}</span>
+        </div>
+        <div className="kv">
+          <span>记账笔数</span>
+          <span className="num">{past.length} 天有记录</span>
+        </div>
+      </Mod>
 
-          {/* 图表区 */}
-          <Row gutter={[16, 16]}>
-            <Col span={12}>
-              <Card title={<span style={{ fontWeight: 600 }}>📊 分类占比</span>}>
-                <Pie {...pieConfig} height={280} />
-              </Card>
-            </Col>
-            <Col span={12}>
-              <Card title={<span style={{ fontWeight: 600 }}>📊 分类对比</span>}>
-                <Column {...columnConfig} height={280} />
-              </Card>
-            </Col>
-            <Col span={24}>
-              <Card title={<span style={{ fontWeight: 600 }}>📈 每日趋势</span>}>
-                {lineData.length > 1 ? (
-                  <Line {...lineConfig} height={240} />
-                ) : (
-                  <div style={{ textAlign: 'center', padding: 80, color: '#94A3B8' }}>
-                    <RiseOutlined style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }} />
-                    <br />需要至少 2 天有数据才能显示趋势图
-                  </div>
-                )}
-              </Card>
-            </Col>
-          </Row>
-
-          {/* 月度对比 */}
-          <Card
-            title={<span style={{ fontWeight: 600 }}>📅 月度对比</span>}
-            style={{ marginTop: 16 }}
-          >
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20,
-              padding: '14px 20px', background: '#F8FAFC', borderRadius: 12,
-            }}>
-              <DatePicker
-                picker="month"
-                value={compareMonth}
-                onChange={d => setCompareMonth(d || dayjs())}
-                allowClear={false}
-                format="YYYY年M月"
-                style={{ borderRadius: 10 }}
-              />
-              <Text>
-                {compareMonth.format('YYYY年M月')}：
-                <Text strong style={{ color: '#EF4444', fontSize: 15 }}>
-                  ¥{formatMoney(compareData?.month2?.total ?? 0)}
-                </Text>
-              </Text>
-              <Text type="secondary" style={{ fontSize: 18 }}>vs</Text>
-              <Text>
-                {selectedMonth.format('YYYY年M月')}：
-                <Text strong style={{ color: '#EF4444', fontSize: 15 }}>
-                  ¥{formatMoney(compareData?.month1?.total ?? 0)}
-                </Text>
-              </Text>
+      {/* S-02 分类构成 */}
+      <Mod
+        id="S-02"
+        className="s-8"
+        title="分类构成"
+        en={`COMPOSITION · ${list.length} CH`}
+        right={
+          <Seg
+            value={recordType}
+            onChange={(v) => setRecordType(v)}
+            options={[['expense', '支出'], ['income', '收入']]}
+          />
+        }
+      >
+        <div className="ringw">
+          <div className="ringbox">
+            <svg className="ring" viewBox="0 0 240 240" aria-hidden="true">
+              {Array.from({ length: 60 }, (_, k) => {
+                const t = (k * 6 * Math.PI) / 180
+                const r1 = k % 5 ? 113 : 110
+                return (
+                  <path
+                    key={k}
+                    className="bz"
+                    d={`M${(120 + r1 * Math.cos(t)).toFixed(1)} ${(120 + r1 * Math.sin(t)).toFixed(1)}L${(120 + 116 * Math.cos(t)).toFixed(1)} ${(120 + 116 * Math.sin(t)).toFixed(1)}`}
+                  />
+                )
+              })}
+              <circle className="ot" cx="120" cy="120" r="82" />
+              {(() => {
+                let a = -90
+                return list.map((c, i) => {
+                  const sw = c.share * 360
+                  const g = list.length > 1 ? 1.4 : 0
+                  const a0 = a + g / 2
+                  const a1 = Math.min(a + sw - g / 2, a0 + 359.9)
+                  a += sw
+                  if (a1 <= a0 + 0.3) return null
+                  return (
+                    <path
+                      key={c.category_key}
+                      className={`sg${i === ri ? ' on' : ''}`}
+                      d={arcD(96, a0, a1)}
+                      style={{ opacity: i === ri ? 1 : Math.max(0.24, 1 - i * 0.13) }}
+                      onClick={() => setRi(i)}
+                    />
+                  )
+                })
+              })()}
+            </svg>
+            <div className="ringc">
+              {cur ? (
+                <>
+                  <span className="lb">
+                    <b>
+                      {p2(ri + 1)} / {p2(list.length)}
+                    </b>
+                    RANK
+                  </span>
+                  <span className="nm">{cur.category_name}</span>
+                  <span className="v">¥{F(cur.total)}</span>
+                  <span className="p">{(cur.share * 100).toFixed(1)}%</span>
+                </>
+              ) : (
+                <span className="nm">这个月还没有数据</span>
+              )}
             </div>
-            {compareData && (
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Card
-                    size="small"
-                    title={`${compareMonth.format('M月')} 分类占比`}
-                    styles={{ body: { padding: 16 } }}
-                  >
-                    <Pie
-                      data={compareData.month2.rows.map((i: any) => ({ type: i.category_name, value: i.total }))}
-                      angleField="value" colorField="type" radius={0.8}
-                      label={{ text: (d: any) => d.type, position: 'outside' as const, style: { fontSize: 11 } }}
-                      legend={{ color: { position: 'bottom' as const } }}
-                      color={getColors(compareData.month2.rows)}
-                      height={200}
-                    />
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card
-                    size="small"
-                    title={`${selectedMonth.format('M月')} 分类占比`}
-                    styles={{ body: { padding: 16 } }}
-                  >
-                    <Pie
-                      data={compareData.month1.rows.map((i: any) => ({ type: i.category_name, value: i.total }))}
-                      angleField="value" colorField="type" radius={0.8}
-                      label={{ text: (d: any) => d.type, position: 'outside' as const, style: { fontSize: 11 } }}
-                      legend={{ color: { position: 'bottom' as const } }}
-                      color={getColors(compareData.month1.rows)}
-                      height={200}
-                    />
-                  </Card>
-                </Col>
-              </Row>
+          </div>
+          <div className="rk">
+            {list.slice(0, 8).map((c, i) => (
+              <button
+                key={c.category_key}
+                className={`rkr${i === ri ? ' on' : ''}`}
+                onClick={() => setRi(i)}
+              >
+                <span className="n0">{p2(i + 1)}</span>
+                <span className="pict">
+                  <CatIcon k={c.category_key} />
+                </span>
+                <span className="nm">
+                  <span>{c.category_name}</span>
+                  <i style={cssVar('--s', (c.share / maxShare).toFixed(3))} />
+                </span>
+                <span className="a">¥{F(c.total)}</span>
+                <span className="p">{(c.share * 100).toFixed(1)}%</span>
+                <Icon n="r" cls="s go" />
+              </button>
+            ))}
+            {list.length === 0 && <div className="empty-s">这个月还没有{recordType === 'income' ? '收入' : '支出'}</div>}
+          </div>
+        </div>
+      </Mod>
+
+      {/* S-03 每日走势 */}
+      <Mod id="S-03" className="s-8" title="每日走势" en="DAILY · OSCILLOSCOPE" right={<span className="lb">悬停读数</span>}>
+        <div className="osc" onMouseLeave={() => setHi(null)}>
+          <span className="yl" style={{ top: 4 }}>{kf(osc.cap)}</span>
+          <span className="yl mid" style={{ top: '50%' }}>{kf(osc.cap / 2)}</span>
+          <div className="pl">
+            {osc.dailyBudget > 0 && osc.dailyBudget < osc.cap && (
+              <div className="bl" style={{ bottom: `${((osc.dailyBudget / osc.cap) * 100).toFixed(1)}%` }}>
+                <span>日均预算 {F(osc.dailyBudget, 0)}</span>
+              </div>
             )}
-          </Card>
-        </>
-      )}
+            <div className="bars">
+              {trend.map((d, i) => (
+                <div
+                  key={d.date}
+                  className={`b${d.future ? ' fu' : ''}${d.date === todayStr() ? ' td' : ''}${d.total > osc.cap ? ' ov' : ''}${hi === i ? ' hi' : ''}`}
+                  onMouseEnter={() => setHi(i)}
+                >
+                  <i
+                    style={{
+                      height: d.future
+                        ? '100%'
+                        : `${Math.max(d.total ? 1.5 : 0, Math.min(100, (d.total / osc.cap) * 100)).toFixed(1)}%`,
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            {hi !== null && (
+              <div className={`xh${hi > trend.length * 0.62 ? ' l' : ''}`} style={{ transform: `translateX(${(((hi + 0.5) / trend.length) * 100).toFixed(2)}%)` }}>
+                <div className="rd">
+                  {hoverDay ? (
+                    <>
+                      {Number(hoverDay.date.slice(5, 7))}月{Number(hoverDay.date.slice(8))}日 {weekday(hoverDay.date)}
+                      <b>{hoverDay.future ? '未到 · —' : `¥${F(hoverDay.total)}`}</b>
+                      {hoverDay.future ? 'NOT YET' : hoverDay.date === todayStr() ? '今天' : '已入账'}
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="xl">
+            {[1, 5, 10, 15, 20, 25, trend.length].map((k, idx, arr) => (
+              <span
+                key={k}
+                className={idx === 0 ? 'first' : idx === arr.length - 1 ? 'last' : ''}
+                style={{ left: `${(((k - 0.5) / trend.length) * 100).toFixed(2)}%` }}
+              >
+                {p2(k)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </Mod>
+
+      {/* S-04 近六个月 */}
+      <Mod id="S-04" className="s-4" title="近六个月" en="6-MONTH · OUT / IN">
+        <div className="pairs">
+          {six.map((x) => (
+            <button
+              key={x.month}
+              className={`pr${x.month === ym ? ' on' : ''}`}
+              onClick={() => setYm(x.month)}
+              aria-label={`${x.month} 支出 ${F(x.expense)} 收入 ${F(x.income)}`}
+            >
+              <span className="bb">
+                <i className="e" style={{ height: `${((x.expense / sixMax) * 100).toFixed(1)}%` }}>
+                  <span className="tv">{kf(x.expense)}</span>
+                </i>
+                <i className="n" style={{ height: `${((x.income / sixMax) * 100).toFixed(1)}%` }} />
+              </span>
+              <span className="ml">{Number(x.month.slice(5, 7))}月</span>
+            </button>
+          ))}
+        </div>
+        <div className="legend">
+          <span>
+            <i className="le" />
+            支出 OUT
+          </span>
+          <span>
+            <i className="ln" />
+            收入 IN
+          </span>
+        </div>
+        <div className="ros" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+          <Ro cn="六月累计支出" en="Σ OUT" v={sixExp} />
+          <Ro cn="累计收入" en="Σ IN" v={sixInc} cls="inc" />
+        </div>
+      </Mod>
     </div>
   )
 }

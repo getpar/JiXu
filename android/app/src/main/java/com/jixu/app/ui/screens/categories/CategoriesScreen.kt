@@ -1,11 +1,14 @@
 package com.jixu.app.ui.screens.categories
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,10 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,9 +34,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,26 +44,29 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jixu.app.AppContainer
 import com.jixu.app.core.CustomCategory
 import com.jixu.app.core.mergedCategories
-import com.jixu.app.ui.screens.common.JxCard
-import com.jixu.app.ui.screens.common.JxConfirmDialog
-import com.jixu.app.ui.screens.common.JxLabel
-import com.jixu.app.ui.screens.common.JxLink
-import com.jixu.app.ui.screens.common.JxSmallAction
-import com.jixu.app.ui.screens.common.JxTextField
-import com.jixu.app.ui.screens.common.JxTitle
-import com.jixu.app.ui.screens.common.JxTopBar
+import com.jixu.app.ui.screens.common.BConfirm
+import com.jixu.app.ui.screens.common.BTextField
+import com.jixu.app.ui.screens.common.BTopBar
+import com.jixu.app.ui.screens.common.HLine
+import com.jixu.app.ui.screens.common.MicroLabel
+import com.jixu.app.ui.screens.common.MiniButton
+import com.jixu.app.ui.screens.common.ModuleHeader
+import com.jixu.app.ui.screens.common.Panel
+import com.jixu.app.ui.screens.common.categoryIcon
 import com.jixu.app.ui.screens.common.showToast
 import com.jixu.app.ui.theme.JiXuTheme
+import com.jixu.app.ui.theme.MonoFamily
+import com.jixu.app.ui.theme.SansFamily
 import kotlinx.coroutines.launch
 
 /**
- * 分类管理（开发文档 §8.5，参照 miniapp/src/pages/categories/index.tsx）。
- * 自定义分类只存本机；Room Flow 自动刷新。
+ * 分类管理（开发文档 §8.5）：自定义分类只存本机；Room Flow 自动刷新。
+ * 默认分类不可删除，自定义分类带 ×。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
-    val colors = JiXuTheme.colors
+    val c = JiXuTheme.colors
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -128,13 +137,13 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        JxTopBar(title = "分类管理", onBack = onBack) {
-            JxLink("+ 新大类", onClick = {
+        BTopBar(title = "分类管理", en = "05 · CATS", onBack = onBack) {
+            MiniButton("+ 新大类", onClick = {
                 showNewMajor = true
                 newMajorName = ""
                 newSubName = ""
                 editingGroup = null
-            }, size = 13.sp)
+            })
         }
 
         Column(
@@ -147,96 +156,117 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
             Spacer(Modifier.height(4.dp))
 
             if (showNewMajor) {
-                JxCard {
-                    JxTitle("添加新大类及第一个小类")
+                Panel {
+                    ModuleHeader(id = "C-NEW", title = "新大类", en = "NEW GROUP")
                     Spacer(Modifier.height(12.dp))
-                    JxLabel("大类名称")
-                    JxTextField(
+                    MicroLabel("大类名称 · GROUP", color = c.fnt)
+                    BTextField(
                         value = newMajorName,
                         onValueChange = { newMajorName = it },
                         placeholder = "如：育儿",
                         maxLength = 10,
+                        textSize = 14.sp,
+                        modifier = Modifier.padding(top = 6.dp),
                     )
-                    Spacer(Modifier.height(10.dp))
-                    JxLabel("小类名称")
-                    JxTextField(
+                    HLine(Modifier.padding(top = 6.dp))
+                    Spacer(Modifier.height(12.dp))
+                    MicroLabel("小类名称 · SUB", color = c.fnt)
+                    BTextField(
                         value = newSubName,
                         onValueChange = { newSubName = it },
                         placeholder = "如：猫粮",
                         maxLength = 10,
+                        textSize = 14.sp,
+                        modifier = Modifier.padding(top = 6.dp),
                     )
+                    HLine(Modifier.padding(top = 6.dp))
                     Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Spacer(Modifier.weight(1f))
-                        JxLink("取消", onClick = {
+                        MiniButton("取消", onClick = {
                             showNewMajor = false
                             newMajorName = ""
                             newSubName = ""
-                        }, color = colors.sub, size = 14.sp)
-                        JxLink("确认添加", onClick = { addMajor() }, size = 14.sp)
+                        })
+                        MiniButton("确认添加", onClick = { addMajor() }, primary = true)
                     }
                 }
                 Spacer(Modifier.height(10.dp))
             }
 
-            cats.forEach { cat ->
-                JxCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        JxTitle(cat.name, Modifier.weight(1f))
-                        JxLink(
+            cats.forEachIndexed { index, cat ->
+                Panel {
+                    ModuleHeader(
+                        id = "C-" + (index + 1).toString().padStart(2, '0'),
+                        title = cat.name,
+                        en = "CATEGORY · ${cat.subs.size}",
+                    ) {
+                        Text(
                             if (editingGroup == cat.key) "取消" else "+ 添加小类",
-                            onClick = {
-                                editingGroup = if (editingGroup == cat.key) null else cat.key
-                                subName = ""
-                            },
-                            color = if (editingGroup == cat.key) colors.sub else colors.accent,
-                            size = 12.sp,
+                            style = TextStyle(
+                                fontFamily = SansFamily,
+                                fontSize = 12.sp,
+                                color = if (editingGroup == cat.key) c.dim else c.ac,
+                            ),
+                            modifier = Modifier
+                                .clickable {
+                                    editingGroup = if (editingGroup == cat.key) null else cat.key
+                                    subName = ""
+                                }
+                                .padding(vertical = 6.dp),
                         )
                     }
 
                     if (editingGroup == cat.key) {
                         Spacer(Modifier.height(10.dp))
-                        JxLabel("添加到「${cat.name}」")
-                        Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            JxTextField(
+                            BTextField(
                                 value = subName,
                                 onValueChange = { subName = it },
                                 placeholder = "小类名称",
                                 maxLength = 8,
+                                textSize = 13.sp,
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(Modifier.width(10.dp))
-                            JxSmallAction("确认", onClick = { addSub(cat.key) })
+                            MiniButton("确认", onClick = { addSub(cat.key) }, primary = true)
                         }
+                        HLine(Modifier.padding(top = 6.dp))
                     }
 
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(12.dp))
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         cat.subs.forEach { sub ->
                             val custom = sub.key in customKeys
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.soft)
-                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                    .height(30.dp)
+                                    .background(c.p3)
+                                    .border(1.dp, c.ln)
+                                    .padding(start = 9.dp, end = if (custom) 4.dp else 9.dp),
                             ) {
-                                Text(sub.name, fontSize = 12.sp, color = colors.sub)
+                                Text(
+                                    sub.name,
+                                    style = TextStyle(fontFamily = SansFamily, fontSize = 11.5.sp, color = c.dim),
+                                )
                                 if (custom) {
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        "×",
-                                        fontSize = 14.sp,
-                                        color = colors.muted,
-                                        fontWeight = FontWeight.Medium,
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "删除",
+                                        tint = c.fnt,
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(99.dp))
+                                            .padding(start = 4.dp)
+                                            .size(16.dp)
                                             .clickable { confirmDelete = sub.key }
-                                            .padding(horizontal = 3.dp),
+                                            .padding(2.dp),
                                     )
                                 }
                             }
@@ -246,19 +276,28 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
             }
 
-            Text(
-                "带 × 号的可删除（自定义分类），其余为默认分类不可删除",
-                fontSize = 11.sp,
-                color = colors.faint,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
+            Panel(flat = true, contentPadding = PaddingValues(0.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(6.dp).background(c.fnt))
+                    Text(
+                        "带 × 号的可删除（自定义分类），其余为默认分类不可删除",
+                        style = TextStyle(fontFamily = SansFamily, fontSize = 11.sp, color = c.fnt),
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
             Spacer(Modifier.height(20.dp))
         }
     }
 
     confirmDelete?.let { subKey ->
-        JxConfirmDialog(
+        BConfirm(
             title = "确定删除？",
+            message = "删除后该分类不再出现在记账页，已记录的账保持不变",
+            confirmText = "删除",
             onDismiss = { confirmDelete = null },
             onConfirm = {
                 confirmDelete = null
