@@ -1,0 +1,16 @@
+{
+  "name": "jixu",
+  "version": "1.3.0",
+  "private": true,
+  "description": "计序 —— 桌面（Electron）/ 微信小程序（Taro）/ 安卓（Kotlin + Compose）三端记账",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "check:desktop": "node scripts/check.mjs desktop",
+    "check:miniapp": "node scripts/check.mjs miniapp",
+    "check:android": "node scripts/check.mjs android",
+    "dev:desktop": "npm --prefix desktop run dev",
+    "build:desktop": "npm --prefix desktop run build",
+    "dev:miniapp": "npm --prefix miniapp run dev:weapp",
+    "build:miniapp": "npm --prefix miniapp run build:weapp"
+  }
+}

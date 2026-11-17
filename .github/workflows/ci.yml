@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: 桌面 + 小程序
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装依赖（桌面）
+        run: npm ci --prefix desktop
+
+      - name: 类型检查（桌面）
+        run: npm --prefix desktop exec -- tsc --noEmit
+
+      - name: 安装依赖（小程序）
+        run: npm ci --prefix miniapp
+
+      - name: 同步引擎回归
+        run: npm --prefix miniapp run verify:sync
+
+      - name: account 云函数回归
+        run: npm --prefix miniapp run verify:account
+
+      - name: 小程序构建
+        run: npm --prefix miniapp run build:weapp
+
+  android:
+    name: 安卓单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: 单元测试
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest --console=plain
