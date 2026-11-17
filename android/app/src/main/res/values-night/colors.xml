@@ -2,5 +2,4 @@
 <resources>
     <!-- B · 夜航仪表 深色（默认主推） -->
     <color name="theme_background">#0A0B0D</color>
-    <color name="ic_launcher_background">#2E3A8C</color>
 </resources>
