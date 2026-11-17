@@ -83,6 +83,26 @@ interface TodoItem {
   created_at: string
 }
 
+interface SavingsItem {
+  id: string
+  direction: 'in' | 'out'
+  amount: number
+  date: string
+  note: string
+  created_at: number
+  updated_at: number
+  deleted: number
+  revive_count: number
+}
+
+interface SavingsSummary {
+  total: number
+  totalIn: number
+  totalOut: number
+  monthIn: number
+  monthOut: number
+}
+
 interface ElectronAPI {
   // 分类
   getCategories: () => Promise<Category[]>
@@ -142,13 +162,20 @@ interface ElectronAPI {
   // v0.7.3 云同步实体快照（camelCase，含软删项）
   getTodosForSync: () => Promise<EntitySnapshot[]>
   applyCloudTodos: (items: EntitySnapshot[]) => Promise<{ changed: number }>
+
+  // 存钱罐（独立小账本）
+  getSavings: () => Promise<SavingsItem[]>
+  getDeletedSavings: () => Promise<SavingsItem[]>
+  getSavingsSummary: () => Promise<SavingsSummary>
+  addSaving: (data: { direction: string; amount: number; date: string; note?: string }) => Promise<{ success: boolean; id?: string; error?: string }>
+  updateSaving: (id: string, data: { amount: number; date: string; note?: string }) => Promise<{ success: boolean }>
+  deleteSaving: (id: string) => Promise<{ success: boolean }>
+  restoreSaving: (id: string) => Promise<{ success: boolean }>
+  getSavingsForSync: () => Promise<Array<Record<string, any>>>
+  applyCloudSavings: (items: Array<Record<string, any>>) => Promise<{ changed: number }>
+
   getShortcut: () => Promise<string>
   setShortcut: (accelerator: string) => Promise<{ success: boolean }>
-
-  // 云同步
-  getCloudStatus: () => Promise<{ enabled: boolean; envId: string; manifest: { lastSyncAt: string; recordCount: number; envId: string } | null }>
-  setCloudEnvId: (envId: string) => Promise<{ success: boolean }>
-  cloudSync: () => Promise<{ success: boolean; uploaded: number; downloaded: number; error?: string }>
 }
 
 declare global {
@@ -157,5 +184,5 @@ declare global {
   }
 }
 
-export type { Category, RecordItem, MonthlyStat, RecordListResult, RecurringBill, MonthCompareResult, TodoItem }
+export type { Category, RecordItem, MonthlyStat, RecordListResult, RecurringBill, MonthCompareResult, TodoItem, SavingsItem, SavingsSummary }
 export {}

@@ -54,16 +54,40 @@ class ExcelExporterTest {
     }
 
     /** FastExcel 把中文写成 XML 数字实体（&#x65e5;），断言前先还原 */
-    private fun decodeXmlEntities(raw: String): String {
-        val hex = Regex("""&#x([0-9a-fA-F]+);""")
-        val dec = Regex("""&#(\d+);""")
-        return raw
-            .replace(hex) { it.groupValues[1].toInt(16).toChar().toString() }
-            .replace(dec) { it.groupValues[1].toInt().toChar().toString() }
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&amp;", "&")
+    private fun decodeXmlEntities(raw: String): String = raw
+        .replace(Regex("""&#x([0-9a-fA-F]+);""")) { it.groupValues[1].toInt(16).toChar().toString() }
+        .replace(Regex("""&#(\d+);""")) { it.groupValues[1].toInt().toChar().toString() }
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+
+    @Test
+    fun writesSavingsXlsx() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(ctx.cacheDir, "exports/savings-smoke.xlsx")
+        if (file.exists()) file.delete()
+
+        ExcelExporter.writeSavings(
+            file,
+            listOf(
+                SavingsExportRow("2026-11-11", "in", 500.0, "现金"),
+                SavingsExportRow("2026-11-12", "out", 100.0, ""),
+            ),
+        )
+        assertTrue("存钱罐 xlsx 文件不存在或为空", file.length() > 0)
+        ZipFile(file).use { zip ->
+            val sheet = zip.getEntry("xl/worksheets/sheet1.xml")
+            assertTrue("缺少 sheet1.xml", sheet != null)
+            val xml = zip.getInputStream(sheet).readBytes().toString(Charsets.UTF_8)
+            val shared = zip.getEntry("xl/sharedStrings.xml")
+            assertTrue("缺少 sharedStrings.xml", shared != null)
+            val sharedText = decodeXmlEntities(zip.getInputStream(shared).readBytes().toString(Charsets.UTF_8))
+            listOf("日期", "类型", "金额", "备注").forEach {
+                assertTrue("表头缺少「$it」", sharedText.contains("<t xml:space=\"preserve\">$it</t>"))
+            }
+            assertTrue("金额未写成数值：$xml", Regex("""r="C2"[^>]*>\s*<v>500(\.0)?</v>""").containsMatchIn(xml))
+        }
     }
 }

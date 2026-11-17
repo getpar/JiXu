@@ -1,5 +1,6 @@
 import Taro from '@tarojs/taro'
 import { getCloudCollection, getOwnerId, getDeviceSource, taroStore } from './cloud'
+import { ensureWechatAccount } from './cloudAccount'
 import { runSync, recordKey, parseRecordKey, PendingPurge, SyncableRecord, SyncResult } from './cloudCore'
 import { sumAmounts } from './money'
 import { localDateStr, advanceDate } from './dates'
@@ -32,6 +33,10 @@ export interface RecordItem {
  * v0.6.6：删除/编辑通过"删除凭证 + 新增"参与同步（软删除，集合权限不变、无需云函数）。
  */
 export async function syncNow(force = false): Promise<SyncResult> {
+  // v1.2.0 微信身份：先确保云函数已把本机同步码↔微信身份解析完，再跑同步。
+  // 必须放在并发锁之前（否则同一时刻的多次 syncNow 会各自拿到本机旧码）；
+  // ensureWechatAccount 内部缓存 Promise 只跑一次，失败也只记录原因、绝不阻塞本地使用。
+  try { await ensureWechatAccount() } catch { /* 云函数不可用时继续用本机同步码 */ }
   // v0.8.3 并发锁：冷启动时 app.tsx + 首页 show + 周期检查会几乎同时触发多路同步，
   // 并发跑会互相"看不见"对方在传的数据导致同一笔重复上传，这里合并为同一趟
   if (syncInFlight) {

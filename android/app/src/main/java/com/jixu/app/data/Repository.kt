@@ -19,6 +19,7 @@ import com.jixu.app.data.db.CustomCategoryEntity
 import com.jixu.app.data.db.PendingPurgeEntity
 import com.jixu.app.data.db.RecordEntity
 import com.jixu.app.data.db.RecurringBillEntity
+import com.jixu.app.data.db.SavingsEntity
 import com.jixu.app.data.db.TodoEntity
 import com.jixu.app.notify.ReminderUpdates
 import com.jixu.app.sync.KVStore
@@ -574,6 +575,7 @@ class Repository(
             db.recurringBills().clear()
             db.customCategories().clear()
             db.pendingPurges().clear()
+            db.savings().clear()
         }
         store.clear()
         photos.clearAll()
@@ -762,6 +764,135 @@ class Repository(
         changed
     }
 
+    // ==================== 存钱罐（独立小账本，不参与账单统计） ====================
+
+    suspend fun addSaving(direction: String, amount: Double, date: String, note: String): String {
+        require(direction == "in" || direction == "out") { "direction 只能是 in/out" }
+        val now = clock()
+        val id = "s_${now}_${randomBase36(6)}"
+        db.withTransaction {
+            db.savings().upsert(
+                SavingsEntity(
+                    id = id,
+                    direction = direction,
+                    amount = amount,
+                    date = date,
+                    note = note.trim(),
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+        return id
+    }
+
+    suspend fun updateSaving(id: String, amount: Double, date: String, note: String) {
+        db.withTransaction {
+            val old = db.savings().byId(id) ?: return@withTransaction
+            if (old.deleted > 0) return@withTransaction
+            db.savings().upsert(
+                old.copy(
+                    amount = amount,
+                    date = date,
+                    note = note.trim(),
+                    updatedAt = clock(),
+                ),
+            )
+        }
+    }
+
+    suspend fun deleteSaving(id: String) {
+        db.withTransaction {
+            val old = db.savings().byId(id) ?: return@withTransaction
+            if (old.deleted > 0) return@withTransaction
+            db.savings().upsert(old.copy(deleted = 1, updatedAt = clock()))
+        }
+    }
+
+    suspend fun restoreSaving(id: String) {
+        db.withTransaction {
+            val old = db.savings().byId(id) ?: return@withTransaction
+            if (old.deleted <= 0) return@withTransaction
+            db.savings().upsert(
+                old.copy(
+                    deleted = 0,
+                    reviveCount = old.reviveCount + 1,
+                    updatedAt = clock(),
+                ),
+            )
+        }
+    }
+
+    /** 存钱罐页面用：只返回未删除的存钱记录（日期倒序 + 同日提交时刻倒序） */
+    fun observeSavings(): Flow<List<SavingsEntity>> =
+        db.savings().aliveFlow().map { sortSavingsByTimeDesc(it) }.flowOn(Dispatchers.Default)
+
+    /** 存钱罐「已删除」折叠区用 */
+    fun observeDeletedSavings(): Flow<List<SavingsEntity>> =
+        db.savings().deletedFlow().map { sortSavingsByTimeDesc(it) }.flowOn(Dispatchers.Default)
+
+    suspend fun getSavingsSummary(): SavingsSummary {
+        val alive = db.savings().alive()
+        val month = today().take(7)
+        val totalIn = sumAmounts(alive.filter { it.direction == "in" }.map { it.amount }.toDoubleArray())
+        val totalOut = sumAmounts(alive.filter { it.direction == "out" }.map { it.amount }.toDoubleArray())
+        val monthIn = sumAmounts(
+            alive.filter { it.direction == "in" && it.date.startsWith(month) }.map { it.amount }.toDoubleArray(),
+        )
+        val monthOut = sumAmounts(
+            alive.filter { it.direction == "out" && it.date.startsWith(month) }.map { it.amount }.toDoubleArray(),
+        )
+        val total = sumAmounts(
+            alive.map { if (it.direction == "in") it.amount else -it.amount }.toDoubleArray(),
+        )
+        return SavingsSummary(total, totalIn, totalOut, monthIn, monthOut)
+    }
+
+    /** 独立云同步用：读全部存钱行（含已删除） */
+    suspend fun getAllSavings(): List<SavingsEntity> = db.savings().getAll()
+
+    /** 把云端更新的 savings 快照写入本地（LWW：只有云端更新时才覆盖） */
+    suspend fun applyCloudSavings(snapshots: List<SavingsSnapshot>): Int = db.withTransaction {
+        var changed = 0
+        for (s in snapshots) {
+            val local = db.savings().byId(s.entityId)
+            if (local == null) {
+                // 新设备拉到历史已删除快照时，不把回收站塞满；只需要恢复存活记录
+                if (s.deleted) continue
+                db.savings().upsert(
+                    SavingsEntity(
+                        id = s.entityId,
+                        direction = s.direction,
+                        amount = s.amount,
+                        date = s.date,
+                        note = s.note,
+                        createdAt = s.createdAt,
+                        updatedAt = s.updatedAt,
+                        deleted = 0,
+                        reviveCount = s.reviveCount,
+                    ),
+                )
+                changed++
+                continue
+            }
+            if (local.updatedAt >= s.updatedAt) continue
+            db.savings().upsert(
+                local.copy(
+                    direction = s.direction,
+                    amount = s.amount,
+                    date = s.date,
+                    note = s.note,
+                    createdAt = s.createdAt,
+                    updatedAt = s.updatedAt,
+                    deleted = if (s.deleted) 1 else 0,
+                    reviveCount = s.reviveCount,
+                ),
+            )
+            changed++
+        }
+        changed
+    }
+
     // ==================== 内部 ====================
 
     /** 同步适配器读本地行：调试模拟账单（id `debug_…`）只用于滑动性能检查，永不参与对账 */
@@ -848,6 +979,11 @@ class Repository(
     fun sortRecordsByTimeDesc(list: List<RecordEntity>): List<RecordEntity> =
         list.sortedWith(
             compareByDescending<RecordEntity> { it.date }.thenByDescending { createdAtOf(it) },
+        )
+
+    private fun sortSavingsByTimeDesc(list: List<SavingsEntity>): List<SavingsEntity> =
+        list.sortedWith(
+            compareByDescending<SavingsEntity> { it.date }.thenByDescending { it.createdAt },
         )
 
     private fun createdAtOf(r: RecordEntity): Long =

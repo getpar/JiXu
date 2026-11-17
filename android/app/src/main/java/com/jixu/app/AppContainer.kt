@@ -2,6 +2,8 @@ package com.jixu.app
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jixu.app.cloud.CloudBaseAuth
 import com.jixu.app.cloud.CloudBaseCollection
 import com.jixu.app.cloud.CloudEnv
@@ -17,6 +19,7 @@ import com.jixu.app.notify.ReminderScheduler
 import com.jixu.app.photo.AndroidPhotoStore
 import com.jixu.app.sync.EntitySyncSpec
 import com.jixu.app.sync.KVStore
+import com.jixu.app.sync.SavingsSyncManager
 import com.jixu.app.sync.SyncDeps
 import com.jixu.app.sync.SyncManager
 import com.jixu.app.sync.SyncTrigger
@@ -41,7 +44,9 @@ class AppContainer(context: Context) {
 
     val store: KVStore = prefs
 
-    val db: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME).build()
+    val db: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
+        .addMigrations(MIGRATION_1_2)
+        .build()
 
     /** 小票照片：拍照/相册落盘、压缩、删除（§12） */
     val photos: AndroidPhotoStore = AndroidPhotoStore(appContext)
@@ -64,6 +69,14 @@ class AppContainer(context: Context) {
         envIdProvider = { CloudEnv.resolve(store) },
     )
 
+    /** 存钱罐专用云集合（独立 savings，不碰 records） */
+    val cloudSavings: CloudBaseCollection = CloudBaseCollection(
+        transport = transport,
+        auth = auth,
+        envIdProvider = { CloudEnv.resolve(store) },
+        collectionName = CloudEnv.SAVINGS_COLLECTION,
+    )
+
     private var syncRef: SyncManager? = null
 
     val repository: Repository = Repository(
@@ -82,6 +95,15 @@ class AppContainer(context: Context) {
         scope = scope,
         depsFactory = { buildDeps() },
     ).also { syncRef = it }
+
+    /** 存钱罐独立同步（和上面的账单 SyncManager 完全分开） */
+    val savingsSyncManager: SavingsSyncManager = SavingsSyncManager(
+        scope = scope,
+        cloud = cloudSavings,
+        repository = repository,
+        ownerIdProvider = { ownerId() },
+        sourceProvider = { deviceSource() },
+    )
 
     /** 本机同步码：没有或不合法就生成一个（§7.8） */
     suspend fun ownerId(): String {
@@ -137,5 +159,25 @@ class AppContainer(context: Context) {
 
     private companion object {
         const val DB_NAME = "jixu.db"
+
+        /** v1 → v2：新增独立的 savings 表（需求评估-02）；不动 records 等旧表。 */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `savings` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`direction` TEXT NOT NULL, " +
+                        "`amount` REAL NOT NULL, " +
+                        "`date` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, " +
+                        "`created_at` INTEGER NOT NULL, " +
+                        "`updated_at` INTEGER NOT NULL, " +
+                        "`deleted` INTEGER NOT NULL, " +
+                        "`revive_count` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_savings_deleted_date` ON `savings` (`deleted`, `date`)")
+            }
+        }
     }
 }

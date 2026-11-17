@@ -104,6 +104,113 @@ export function getEnvId(): string {
   return envId
 }
 
+/** 获取当前数据库实例（独立模块如 savings 云同步使用） */
+export function getDb(): any {
+  return db
+}
+
+/** 获取本机同步来源（独立模块如 savings 云同步使用） */
+export function getDeviceSource(): string {
+  return deviceSource()
+}
+
+// ---- 扫码配对（方案B：微信身份 + 扫码配对）----
+// 配对文档复用 records 集合，但绝对不能带 ownerId 字段：
+// 同步引擎的 downloadAllRecords / downloadSince 都按 ownerId 过滤，无 ownerId 的文档永远不会被拉进账本。
+
+/** 电脑端配对请求（桌面显示二维码 → 手机小程序扫码回执） */
+export interface PairRequest {
+  pairingId: string
+  shortCode: string
+  expiresAt: number
+  docId: string | null
+}
+
+/** 生成 32 位随机 hex：优先 crypto.randomUUID 去横线，老环境退回 getRandomValues */
+function newPairingId(): string {
+  const c: any = typeof crypto !== 'undefined' ? crypto : null
+  if (c?.randomUUID) {
+    try {
+      return String(c.randomUUID()).replace(/-/g, '')
+    } catch {
+      /* 某些环境 randomUUID 会因非安全上下文抛错，退回 getRandomValues */
+    }
+  }
+  const bytes = new Uint8Array(16)
+  if (c?.getRandomValues) c.getRandomValues(bytes)
+  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** 生成 6 位数字配对码（首位非 0：避免手机端数字输入框吞掉前导 0 导致对不上） */
+function newShortCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
+
+/**
+ * 创建电脑端配对请求（kind=pair_req，5 分钟有效）。
+ * 调用方需先 initCloud；未连接云端时返回 null。
+ */
+export async function createPairRequest(deviceName?: string): Promise<PairRequest | null> {
+  if (!db) return null
+  try {
+    const pairingId = newPairingId()
+    const shortCode = newShortCode()
+    const createdAt = Date.now()
+    const expiresAt = createdAt + 5 * 60 * 1000
+    const res = await db.collection(COLLECTION).add({
+      kind: 'pair_req',
+      pairingId,
+      shortCode,
+      deviceType: 'desktop',
+      deviceName: deviceName || 'Windows 电脑',
+      createdAt,
+      expiresAt,
+      // 这里绝不能写 ownerId（配对文档不属于任何账本，否则会污染账单同步）
+    })
+    return { pairingId, shortCode, expiresAt, docId: res?.id || null }
+  } catch (e: any) {
+    console.error('[CloudBase] 创建配对请求失败:', e.message)
+    return null
+  }
+}
+
+/** 轮询配对回执（kind=pair_ack）：拿到合法且未过期的 targetOwnerId 即返回，否则 null */
+export async function pollPairAck(pairingId: string): Promise<string | null> {
+  if (!db || !pairingId) return null
+  try {
+    const res = await db.collection(COLLECTION)
+      .where({ kind: 'pair_ack', pairingId })
+      .limit(1)
+      .get()
+    const doc = res?.data?.[0]
+    if (!doc) return null
+    const now = Date.now()
+    const createdAt = Number(doc.createdAt) || 0
+    const expiresAt = Number(doc.expiresAt) || 0
+    // 有效期校验：缺时间戳 / 已过期 / createdAt 明显来自未来（手机时钟异常）都不认
+    if (!createdAt || !expiresAt || expiresAt <= now || createdAt > now + 5 * 60 * 1000) return null
+    // 协议 v1.2：账本码字段统一为 targetOwnerId（不再叫 ownerId，避免被同步引擎 listAll(ownerId) 拉到）；
+    // 兼容早期已按旧协议写 ownerId 的回执，做只读回退
+    const id = normalizeOwnerId(String(doc.targetOwnerId || doc.ownerId || ''))
+    if (!isValidOwnerId(id)) return null
+    return id
+  } catch (e: any) {
+    console.error('[CloudBase] 查询配对回执失败:', e.message)
+    return null
+  }
+}
+
+/** 删除配对请求文档（绑定成功 / 取消后尽力清理，失败忽略：5 分钟后自然过期） */
+export async function deletePairRequest(docId: string): Promise<void> {
+  if (!db || !docId) return
+  try {
+    await db.collection(COLLECTION).doc(docId).remove()
+  } catch {
+    /* 尽力清理，失败不打扰用户 */
+  }
+}
+
 // ---- 数据操作 ----
 
 export interface CloudRecord {

@@ -266,6 +266,58 @@ class RepositoryTest {
     }
 
     @Test
+    fun savingsStayOutOfBillStatsAndSummaryWorks() = runBlocking {
+        repo.addRecord(rec(amount = 8000.0, type = "income"))
+        repo.addSaving("in", 500.0, today, "现金")
+        repo.addSaving("out", 100.0, today, "")
+
+        // 存钱记录不进 records，因此不影响收入/支出统计
+        assertEquals(8000.0, repo.getMonthTotal("2026-11", "income"), 0.0)
+        assertEquals(0.0, repo.getMonthTotal("2026-11", "expense"), 0.0)
+        assertEquals(1, repo.getRecords().size)
+
+        val summary = repo.getSavingsSummary()
+        assertEquals(400.0, summary.total, 0.0)
+        assertEquals(500.0, summary.totalIn, 0.0)
+        assertEquals(100.0, summary.totalOut, 0.0)
+        assertEquals(500.0, summary.monthIn, 0.0)
+        assertEquals(100.0, summary.monthOut, 0.0)
+    }
+
+    @Test
+    fun savingEditDeleteRestoreKeepsTotalCorrect() = runBlocking {
+        val id = repo.addSaving("in", 500.0, today, "现金")
+        repo.updateSaving(id, 600.0, today, "改过")
+        assertEquals(600.0, repo.getSavingsSummary().total, 0.0)
+
+        repo.deleteSaving(id)
+        assertEquals(0.0, repo.getSavingsSummary().total, 0.0)
+        assertEquals(1, db.savings().getAll().count { it.deleted > 0 })
+
+        repo.restoreSaving(id)
+        assertEquals(600.0, repo.getSavingsSummary().total, 0.0)
+        assertEquals(1, db.savings().byId(id)!!.reviveCount)
+    }
+
+    @Test
+    fun applyCloudSavingsOnlyAcceptsNewerSnapshots() = runBlocking {
+        val id = repo.addSaving("in", 500.0, today, "")
+        val createdAt = db.savings().byId(id)!!.createdAt
+
+        val applied = repo.applyCloudSavings(
+            listOf(SavingsSnapshot(id, createdAt + 100, "in", 800.0, today, "", createdAt, false, 0)),
+        )
+        assertEquals(1, applied)
+        assertEquals(800.0, repo.getSavingsSummary().total, 0.0)
+
+        val stale = repo.applyCloudSavings(
+            listOf(SavingsSnapshot(id, createdAt + 50, "in", 900.0, today, "", createdAt, false, 0)),
+        )
+        assertEquals("旧快照不能覆盖新值", 0, stale)
+        assertEquals(800.0, repo.getSavingsSummary().total, 0.0)
+    }
+
+    @Test
     fun clearAllLocalDataWipesTablesPrefsAndPhotos() = runBlocking {
         repo.addRecord(rec(photo = "p9.jpg"))
         repo.addTodo(NewTodo(title = "喝水", cycle = "daily", nextDate = today))
@@ -282,6 +334,7 @@ class RepositoryTest {
             ),
         )
         repo.addCustomCategory("custom_1", "育儿", "custom_1_2", "奶粉")
+        repo.addSaving("in", 500.0, today, "现金")
         repo.setBudget(1000.0)
         assertFalse(store.map.isEmpty())
 
@@ -292,6 +345,7 @@ class RepositoryTest {
         assertTrue(db.recurringBills().getAll().isEmpty())
         assertTrue(db.customCategories().getAll().isEmpty())
         assertTrue(db.pendingPurges().getAll().isEmpty())
+        assertTrue(db.savings().getAll().isEmpty())
         assertTrue(store.map.isEmpty())
         assertTrue(photos.cleared)
     }

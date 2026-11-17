@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { getMonthTotal, getMonthStats, getRecords, getBudget, setBudget as saveBudgetToStorage, syncNow, checkAndExecuteDueBills, getDueSummary, clearAllLocalData } from '../../utils/storage'
 import { localDateStr } from '../../utils/dates'
 import { getOwnerId, joinOwnerId, regenerateOwnerId, testCloud, getEnvId, getDefaultEnvId, setCustomEnvId } from '../../utils/cloud'
+import { ensureWechatAccount, retryWechatAccount, isWechatBound, getWechatAccountError, scanAndConfirmPair, confirmPairByCode, createPhoneInvite, bindWechatAccount, resetWechatAccount } from '../../utils/cloudAccount'
 import { formatOwnerId } from '../../utils/cloudCore'
 import { reportPushState } from '../../utils/push'
 import { useThemeDark, getThemePref, setThemePref, THEME_PREFS } from '../../utils/theme'
@@ -12,6 +13,12 @@ import { formatMoney, formatMoneyExact, parseAmountInput, sanitizeAmountInput, A
 import './index.scss'
 
 const THIS_MONTH = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
+
+/** 错误原因压成一句短话（弹窗里空间有限） */
+function briefError(s: string): string {
+  const t = (s || '').trim()
+  return t.length > 42 ? `${t.slice(0, 42)}…` : t
+}
 
 export default function Index(): JSX.Element {
   const dark = useThemeDark()
@@ -43,6 +50,14 @@ export default function Index(): JSX.Element {
   // v0.8.8 高级设置：自定义云环境 ID（默认折叠，点开才显示输入框，防普通用户误触）
   const [showEnv, setShowEnv] = useState(false)
   const [envInput, setEnvInput] = useState('')
+  // v1.2.0 微信身份 + 扫码配对
+  const [wechatBound, setWechatBound] = useState<boolean>(isWechatBound())
+  const [wechatError, setWechatError] = useState<string>(getWechatAccountError())
+  const [showPairInput, setShowPairInput] = useState(false)
+  const [pairCodeInput, setPairCodeInput] = useState('')
+  const [phoneInvite, setPhoneInvite] = useState<{ shortCode: string; expiresAt: number } | null>(null)
+  const [pairBusy, setPairBusy] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   // v0.7.2 方案B App 内强提醒：今天到期/已逾期未完成的待办
   const [dueInfo, setDueInfo] = useState({ due: 0, overdue: 0 })
   const dueTotal = dueInfo.due + dueInfo.overdue
@@ -76,6 +91,8 @@ export default function Index(): JSX.Element {
   }
 
   useDidShow(() => {
+    // v1.2.0 微信身份状态同步到界面（ensure 缓存 Promise，冷启动只真正调用一次云函数）
+    ensureWechatAccount().then((r) => { setWechatBound(r.bound); setWechatError(r.error || '') }).catch(() => { /* ignore */ })
     refresh()
     // 每次回到首页先和云端同步一次：桌面端记的账拉下来就地刷新；
     // v0.7.7 周期账单自动执行改到同步完成之后：先拉回另一端的“执行回执”，
@@ -134,8 +151,24 @@ export default function Index(): JSX.Element {
       title: '清除本机所有数据？',
       content: `将清空本机的账单、待办、周期账单、预算、自定义分类和小票照片，并换一个新同步码。云端账本不会删除，记下原同步码 ${code}，以后在「云同步」里加入即可找回`,
       confirmColor: '#C0453C',
-      success: (res) => {
-        if (res.confirm) { clearAllLocalData(); setExp(0); setInc(0); setRecent([]); setBudget(0); setTop3([]); setOwnerId_(getOwnerId()); Taro.eventCenter.trigger('dataChanged') }
+      success: async (res) => {
+        if (!res.confirm) return
+        clearAllLocalData()
+        setExp(0); setInc(0); setRecent([]); setBudget(0); setTop3([])
+        // v1.2.0 清空后必须重置微信身份映射，否则下次冷启动会被老微信映射拉回旧账本
+        const r = await resetWechatAccount()
+        if (r.bound) {
+          setOwnerId_(r.ownerId)
+          setWechatBound(true)
+          setWechatError('')
+        } else {
+          const fallback = getOwnerId() // 刚清空 Storage，这里会生成新的本机同步码
+          setOwnerId_(fallback)
+          setWechatBound(false)
+          setWechatError(r.error || '')
+          Taro.showToast({ title: briefError(r.error || '微信身份重置失败，已使用本机新码'), icon: 'none', duration: 3000 })
+        }
+        Taro.eventCenter.trigger('dataChanged')
       },
     })
   }
@@ -146,8 +179,82 @@ export default function Index(): JSX.Element {
     setCloudTest(null)
     setShowEnv(false)
     setEnvInput('')
+    setShowPairInput(false)
+    setPairCodeInput('')
+    setPhoneInvite(null)
+    setShowAdvanced(false)
     setShowCloud(true)
+    setWechatBound(isWechatBound())
+    setWechatError(getWechatAccountError())
+    ensureWechatAccount().then((r) => { setWechatBound(r.bound); setWechatError(r.error || '') }).catch(() => { /* ignore */ })
     testCloud().then(setCloudTest).catch((e) => setCloudTest({ real: false, detail: `检测失败：${e?.message || e}` }))
+  }
+
+  /** v1.2.0 微信身份不可用时点状态条重试：清缓存重跑云函数，成功就立刻强制同步一次 */
+  async function handleRetryWechat(): Promise<void> {
+    if (wechatBound) return
+    Taro.showToast({ title: '正在重试微信身份…', icon: 'none' })
+    const r = await retryWechatAccount()
+    setWechatBound(r.bound)
+    setWechatError(r.error || '')
+    setOwnerId_(getOwnerId())
+    if (r.bound) {
+      Taro.showToast({ title: '微信身份已登录', icon: 'none' })
+      const s = await syncNow(true)
+      if (s.ok) { refresh(); Taro.eventCenter.trigger('dataChanged') }
+    } else {
+      Taro.showToast({ title: r.error ? briefError(r.error) : '仍不可用，请稍后再试', icon: 'none', duration: 2500 })
+    }
+  }
+
+  /** v1.2.0 扫码绑定电脑：扫电脑上的配对二维码，成功后电脑端 1.5 秒内自动绑定 */
+  async function handleScanPair(): Promise<void> {
+    if (pairBusy) return
+    setPairBusy(true)
+    try {
+      const r = await scanAndConfirmPair()
+      if (r.ok) {
+        setOwnerId_(getOwnerId())
+        Taro.showToast({ title: `已绑定：${r.deviceName || '电脑'}`, icon: 'none', duration: 2500 })
+      } else if (r.error && r.error !== '已取消') {
+        Taro.showToast({ title: briefError(r.error), icon: 'none', duration: 2500 })
+      }
+    } finally { setPairBusy(false) }
+  }
+
+  /** v1.2.0 手动输入电脑端 6 位配对码（扫码不方便时的备用） */
+  async function handleManualPair(): Promise<void> {
+    if (pairBusy) return
+    if (!/^\d{6}$/.test(pairCodeInput.trim())) {
+      Taro.showToast({ title: '请输入 6 位数字配对码', icon: 'none' })
+      return
+    }
+    setPairBusy(true)
+    try {
+      const r = await confirmPairByCode(pairCodeInput)
+      if (r.ok) {
+        setShowPairInput(false)
+        setPairCodeInput('')
+        setOwnerId_(getOwnerId())
+        Taro.showToast({ title: `已绑定：${r.deviceName || '电脑'}`, icon: 'none', duration: 2500 })
+      } else {
+        Taro.showToast({ title: briefError(r.error || '绑定失败'), icon: 'none', duration: 2500 })
+      }
+    } finally { setPairBusy(false) }
+  }
+
+  /** v1.2.0 生成手机绑定码：安卓 App 在云同步里输入 6 位数字即可拿到本账本 */
+  async function handleCreateInvite(): Promise<void> {
+    if (pairBusy) return
+    setPairBusy(true)
+    try {
+      const r = await createPhoneInvite()
+      if (r.ok && r.shortCode) {
+        setPhoneInvite({ shortCode: r.shortCode, expiresAt: r.expiresAt || Date.now() + 5 * 60 * 1000 })
+      } else {
+        Taro.showToast({ title: briefError(r.error || '生成绑定码失败'), icon: 'none', duration: 2500 })
+      }
+    } finally { setPairBusy(false) }
   }
 
   /** v0.8.8 应用云环境切换（空串 = 恢复默认环境）：写入覆盖 → 重连通自检 → 通了就立刻同步一次 */
@@ -164,7 +271,15 @@ export default function Index(): JSX.Element {
     testCloud()
       .then((r) => {
         setCloudTest(r)
-        if (r.real) syncNow(true).then(() => { refresh(); Taro.eventCenter.trigger('dataChanged') }).catch(() => { /* 下次进页兜底 */ })
+        if (r.real) syncNow(true).then(async () => {
+          // v1.2.0 换环境后 ensure 会按新环境重新解析微信身份，顺手刷新弹窗状态
+          const w = await ensureWechatAccount()
+          setWechatBound(w.bound)
+          setWechatError(w.error || '')
+          setOwnerId_(getOwnerId())
+          refresh()
+          Taro.eventCenter.trigger('dataChanged')
+        }).catch(() => { /* 下次进页兜底 */ })
       })
       .catch((e) => setCloudTest({ real: false, detail: `检测失败：${e?.message || e}` }))
   }
@@ -181,6 +296,14 @@ export default function Index(): JSX.Element {
     const id = getOwnerId()
     setOwnerId_(id)
     Taro.showToast({ title: '已加入，正在同步…', icon: 'none' })
+    // v1.2.0 本机加入成功后，把微信身份也绑到这个账本；失败只提示，不影响本机已加入
+    const bind = await bindWechatAccount(id)
+    if (bind.ok) {
+      setWechatBound(true)
+      setWechatError('')
+    } else if (bind.error) {
+      Taro.showToast({ title: `已加入本机，微信身份未更新：${briefError(bind.error)}`, icon: 'none', duration: 3000 })
+    }
     const r = await syncNow(true)
     if (r.ok) { refresh(); Taro.eventCenter.trigger('dataChanged') }
   }
@@ -189,8 +312,19 @@ export default function Index(): JSX.Element {
     Taro.showModal({
       title: '换新同步码？',
       content: '换新码后本机将和一个新的云端账本同步，旧账本数据仍在云端但不再拉取',
-      success: (res) => {
-        if (res.confirm) { setOwnerId_(regenerateOwnerId()) }
+      success: async (res) => {
+        if (!res.confirm) return
+        const id = regenerateOwnerId()
+        setOwnerId_(id)
+        // v1.2.0 换新码后同步更新微信身份映射，避免下次启动被拉回旧账本
+        const bind = await bindWechatAccount(id)
+        if (bind.ok) {
+          setWechatBound(true)
+          setWechatError('')
+        } else if (bind.error) {
+          setWechatError(bind.error)
+          Taro.showToast({ title: `已换本机新码，微信身份未更新：${briefError(bind.error)}`, icon: 'none', duration: 3000 })
+        }
       },
     })
   }
@@ -250,6 +384,15 @@ export default function Index(): JSX.Element {
           <Text className='hero-item'>支出<Text className='hero-exp'>¥{formatMoney(exp)}</Text></Text>
           <Text className='hero-item'>收入<Text className='hero-inc'>¥{formatMoney(inc)}</Text></Text>
         </View>
+      </View>
+
+      {/* ====== 存钱罐入口（不显示金额） ====== */}
+      <View className='savings-entry' onClick={() => Taro.navigateTo({ url: '/pages/savings/index' })}>
+        <View className='savings-entry-info'>
+          <Text className='savings-entry-title'>存钱罐</Text>
+          <Text className='savings-entry-sub'>独立小账本 · 不计入本月结余</Text>
+        </View>
+        <Text className='savings-entry-arrow'>›</Text>
       </View>
 
       {/* ====== 预算 ====== */}
@@ -353,13 +496,13 @@ export default function Index(): JSX.Element {
         <Text className='foot-text'>外观 · {THEME_PREFS.find((p) => p.key === themePref)?.label}{themePref === 'system' && dark ? '（当前深色）' : ''}</Text>
       </View>
       <View className='foot-btn' onClick={openCloud}>
-        <Text className='foot-text'>云同步 · 同步码：{formatOwnerId(ownerId || getOwnerId())}</Text>
+        <Text className='foot-text'>云同步 · {wechatBound ? '微信已登录' : '未绑定'}</Text>
       </View>
       <View className='foot-btn' onClick={clearAll}>
         <Text className='foot-text'>清除所有数据</Text>
       </View>
 
-      {/* ====== 云同步 / 同步码弹窗 ====== */}
+      {/* ====== 云同步 / 微信身份弹窗 ====== */}
       {showCloud && (
         <View className='modal' onClick={() => setShowCloud(false)}>
           <View className='modal-box' onClick={(e) => e.stopPropagation()}>
@@ -368,44 +511,98 @@ export default function Index(): JSX.Element {
               {cloudTest === null ? '正在检测云端连通…' : cloudTest.detail}
             </Text>
 
-            <Text className='modal-sub'>我的同步码</Text>
-            <View style='display:flex;align-items:center;gap:16rpx;margin-bottom:24rpx'>
-              <Text style='font-size:32rpx;font-weight:500;color:var(--accent);letter-spacing:2rpx'>{formatOwnerId(ownerId)}</Text>
-              <View className='btn btn-ok' style='height:56rpx;padding:0 24rpx;display:flex;align-items:center' onClick={copyOwnerId}><Text style='color:#fff;font-size:24rpx'>复制</Text></View>
-            </View>
-            <Text className='modal-note' style='margin-bottom:26rpx'>
-              在电脑桌面端输入同一个码，手机和电脑就同步同一本账；别人用小程序会自动分到各自的账本，互相看不到
-            </Text>
-
-            <Text className='modal-sub'>输入桌面端的码，加入同一本账</Text>
-            <View className='input-wrap'>
-              <Input className='input' placeholder='如：ABCD-EFGH-JKMN' value={joinInput} onInput={(e) => setJoinInput(e.detail.value)} maxlength={16} />
-            </View>
-            <View className='modal-btns'>
-              <View className='btn btn-cancel' onClick={handleRegenerate}><Text>换新码</Text></View>
-              <View className='btn btn-ok' onClick={handleJoin}><Text className='btn-ok-text'>加入</Text></View>
+            {/* ====== v1.2.0 微信身份状态（未绑定时点整条重试） ====== */}
+            <View className={`wx-status ${wechatBound ? 'is-ok' : 'is-off'}`} onClick={handleRetryWechat}>
+              <Text className='wx-status-title'>微信身份：{wechatBound ? '已自动登录（无需同步码）' : '未绑定/不可用（点此重试）'}</Text>
+              {!wechatBound && wechatError ? <Text className='wx-status-error'>{briefError(wechatError)}</Text> : null}
             </View>
 
-            {/* ====== v0.8.8 高级设置：自定义云环境 ID（默认折叠，和桌面端云设置对齐） ====== */}
-            <View style='margin-top:28rpx;padding-top:20rpx;border-top:1rpx solid var(--line)' onClick={() => setShowEnv(!showEnv)}>
-              <Text className='modal-note'>自定义云环境 ID（高级）{showEnv ? ' ▲' : ' ▼'}</Text>
+            {/* ====== 扫码绑定电脑 ====== */}
+            <View className='pair-block'>
+              <Text className='modal-sub'>绑定电脑</Text>
+              <View className={`btn btn-ok pair-btn${pairBusy ? ' is-busy' : ''}`} onClick={handleScanPair}>
+                <Text className='btn-ok-text'>扫码绑定电脑</Text>
+              </View>
+              <Text className='pair-link' onClick={() => setShowPairInput(!showPairInput)}>
+                {showPairInput ? '收起手动输入' : '扫码不方便？手动输入 6 位配对码'}
+              </Text>
+              {showPairInput && (
+                <View>
+                  <View className='input-wrap' style='margin-top:16rpx'>
+                    <Input
+                      className='input'
+                      type='number'
+                      placeholder='电脑上显示的 6 位数字'
+                      value={pairCodeInput}
+                      onInput={(e) => setPairCodeInput(String(e.detail.value || '').replace(/\D/g, '').slice(0, 6))}
+                      maxlength={6}
+                    />
+                  </View>
+                  <View className='btn btn-ok pair-btn' onClick={handleManualPair}><Text className='btn-ok-text'>确认绑定</Text></View>
+                </View>
+              )}
             </View>
-            {showEnv && (
-              <View>
-                <Text className='modal-note' style='margin:12rpx 0 10rpx'>
-                  自己有微信云开发/CloudBase 环境时，填它的环境 ID，账本就存进你自己的云数据库；不填则用默认环境。
-                  注意：换环境后各环境的账互不可见，需在新环境里重新输入同步码对码
+
+            {/* ====== 生成手机绑定码（安卓 App 用） ====== */}
+            <View className='pair-block'>
+              <Text className='modal-sub'>绑定安卓手机</Text>
+              <View className={`btn btn-ok pair-btn${pairBusy ? ' is-busy' : ''}`} onClick={handleCreateInvite}>
+                <Text className='btn-ok-text'>生成手机绑定码</Text>
+              </View>
+              {phoneInvite && (
+                <View className='invite-box'>
+                  <Text className='invite-code'>{phoneInvite.shortCode}</Text>
+                  <Text className='invite-note'>5 分钟内有效，在安卓 App 云同步里输入</Text>
+                </View>
+              )}
+            </View>
+
+            {/* ====== 高级（备用同步码）：原同步码功能整块折叠，默认收起 ====== */}
+            <View className='adv-head' onClick={() => setShowAdvanced(!showAdvanced)}>
+              <Text className='modal-note'>高级（备用同步码）{showAdvanced ? ' ▲' : ' ▼'}</Text>
+            </View>
+            {showAdvanced && (
+              <View className='adv-body'>
+                <Text className='modal-sub'>我的同步码</Text>
+                <View style='display:flex;align-items:center;gap:16rpx;margin-bottom:24rpx'>
+                  <Text style='font-size:32rpx;font-weight:500;color:var(--accent);letter-spacing:2rpx'>{formatOwnerId(ownerId)}</Text>
+                  <View className='btn btn-ok' style='height:56rpx;padding:0 24rpx;display:flex;align-items:center' onClick={copyOwnerId}><Text style='color:#fff;font-size:24rpx'>复制</Text></View>
+                </View>
+                <Text className='modal-note' style='margin-bottom:26rpx'>
+                  在电脑桌面端输入同一个码，手机和电脑就同步同一本账；别人用小程序会自动分到各自的账本，互相看不到
                 </Text>
-                <Text className='modal-note' style='color:var(--text);margin-bottom:10rpx'>
-                  当前环境：<Text style='color:var(--accent)'>{getEnvId() || '本地模拟云'}</Text>{getEnvId() === getDefaultEnvId() ? '（默认）' : '（自定义）'}
-                </Text>
+
+                <Text className='modal-sub'>输入桌面端的码，加入同一本账</Text>
                 <View className='input-wrap'>
-                  <Input className='input' placeholder={`默认：${getDefaultEnvId()}`} value={envInput} onInput={(e) => setEnvInput(e.detail.value)} />
+                  <Input className='input' placeholder='如：ABCD-EFGH-JKMN' value={joinInput} onInput={(e) => setJoinInput(e.detail.value)} maxlength={16} />
                 </View>
                 <View className='modal-btns'>
-                  <View className='btn btn-cancel' onClick={() => applyEnv('')}><Text>恢复默认</Text></View>
-                  <View className='btn btn-ok' onClick={() => applyEnv(envInput)}><Text className='btn-ok-text'>保存并重连</Text></View>
+                  <View className='btn btn-cancel' onClick={handleRegenerate}><Text>换新码</Text></View>
+                  <View className='btn btn-ok' onClick={handleJoin}><Text className='btn-ok-text'>加入</Text></View>
                 </View>
+
+                {/* ====== v0.8.8 高级设置：自定义云环境 ID（默认折叠，和桌面端云设置对齐） ====== */}
+                <View className='adv-env-head' onClick={() => setShowEnv(!showEnv)}>
+                  <Text className='modal-note'>自定义云环境 ID（高级）{showEnv ? ' ▲' : ' ▼'}</Text>
+                </View>
+                {showEnv && (
+                  <View>
+                    <Text className='modal-note' style='margin:12rpx 0 10rpx'>
+                      自己有微信云开发/CloudBase 环境时，填它的环境 ID，账本就存进你自己的云数据库；不填则用默认环境。
+                      注意：换环境后各环境的账互不可见，需在新环境里重新输入同步码对码
+                    </Text>
+                    <Text className='modal-note' style='color:var(--text);margin-bottom:10rpx'>
+                      当前环境：<Text style='color:var(--accent)'>{getEnvId() || '本地模拟云'}</Text>{getEnvId() === getDefaultEnvId() ? '（默认）' : '（自定义）'}
+                    </Text>
+                    <View className='input-wrap'>
+                      <Input className='input' placeholder={`默认：${getDefaultEnvId()}`} value={envInput} onInput={(e) => setEnvInput(e.detail.value)} />
+                    </View>
+                    <View className='modal-btns'>
+                      <View className='btn btn-cancel' onClick={() => applyEnv('')}><Text>恢复默认</Text></View>
+                      <View className='btn btn-ok' onClick={() => applyEnv(envInput)}><Text className='btn-ok-text'>保存并重连</Text></View>
+                    </View>
+                  </View>
+                )}
               </View>
             )}
           </View>

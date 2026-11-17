@@ -123,3 +123,29 @@ interface PendingPurgeDao {
     @Query("DELETE FROM pending_purges")
     suspend fun clear()
 }
+
+/** 存钱罐（独立小账本）：只存取 savings 表，不碰 records。 */
+@Dao
+interface SavingsDao {
+    @Query("SELECT * FROM savings WHERE deleted = 0")
+    fun aliveFlow(): Flow<List<SavingsEntity>>
+
+    @Query("SELECT * FROM savings WHERE deleted > 0")
+    fun deletedFlow(): Flow<List<SavingsEntity>>
+
+    @Query("SELECT * FROM savings WHERE deleted = 0")
+    suspend fun alive(): List<SavingsEntity>
+
+    /** 同步引擎用：含已删除行，按 id 做 LWW */
+    @Query("SELECT * FROM savings")
+    suspend fun getAll(): List<SavingsEntity>
+
+    @Query("SELECT * FROM savings WHERE id = :id")
+    suspend fun byId(id: String): SavingsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(saving: SavingsEntity)
+
+    @Query("DELETE FROM savings")
+    suspend fun clear()
+}

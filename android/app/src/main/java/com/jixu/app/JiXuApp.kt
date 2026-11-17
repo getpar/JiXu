@@ -21,6 +21,8 @@ class JiXuApp : Application() {
             // 先按本机待办排上，再同步；同步拉到待办时 Repository 会自动重排
             runCatching { container.reminders.rescheduleAll() }
             runCatching { container.syncManager.syncNow(force = false) }
+            // 存钱罐是独立账本，单独同步一次；失败不影响账单
+            runCatching { container.savingsSyncManager.syncNow(force = false) }
         }
     }
 }

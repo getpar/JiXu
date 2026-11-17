@@ -10,8 +10,9 @@ import androidx.room.RoomDatabase
         RecurringBillEntity::class,
         CustomCategoryEntity::class,
         PendingPurgeEntity::class,
+        SavingsEntity::class,
     ],
-    version = 1,
+    version = 2,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun records(): RecordDao
@@ -19,4 +20,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recurringBills(): RecurringBillDao
     abstract fun customCategories(): CustomCategoryDao
     abstract fun pendingPurges(): PendingPurgeDao
+    abstract fun savings(): SavingsDao
 }

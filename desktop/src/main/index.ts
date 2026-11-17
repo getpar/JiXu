@@ -172,6 +172,21 @@ async function initDatabase(): Promise<void> {
     )
   `)
 
+  // 存钱罐表（需求评估-02）：完全独立的小账本，不参与 records 统计
+  db.run(`
+    CREATE TABLE IF NOT EXISTS savings (
+      id TEXT PRIMARY KEY,
+      direction TEXT NOT NULL,
+      amount REAL NOT NULL,
+      date TEXT NOT NULL,
+      note TEXT DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      revive_count INTEGER NOT NULL DEFAULT 0
+    )
+  `)
+
   // v0.7.3 待办/周期账单云同步：两表补列 — updated_at(LWW 毫秒戳)、deleted(软删)、cloud_id(跨端稳定标识)
   for (const tbl of ['todos', 'recurring_bills']) {
     const cols = new Set((db.exec(`PRAGMA table_info(${tbl})`)[0]?.values || []).map((v) => v[1]))
@@ -189,15 +204,53 @@ async function initDatabase(): Promise<void> {
   }
 }
 
-function saveDatabase(): void {
-  if (!db) return
+/**
+ * v1.0 落盘改成「合并写」：sql.js 每次 db.export() 会把整库序列化一遍，
+ * 原来每写一条记录就同步写盘一次（批量同步 N 条 = N 次全库重写，主进程直接卡死）。
+ * 现在只标脏 + 150ms 后合并写一次；退出/备份前用 saveDatabase(true) 强制落盘。
+ */
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let dbDirty = false
+
+function flushDatabase(): void {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  if (!db || !dbDirty) return
+  dbDirty = false
   const data = db.export()
   fs.writeFileSync(DB_PATH, Buffer.from(data))
+}
+
+function saveDatabase(immediate = false): void {
+  if (!db) return
+  dbDirty = true
+  if (immediate) { flushDatabase(); return }
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(flushDatabase, 150)
+  if (typeof saveTimer.unref === 'function') saveTimer.unref()
 }
 
 /** v0.7.3 实体云同步标识：d_ + 时间戳 + 随机段（与小程序端字符串 id 同属不透明串，不冲突） */
 function newEntityId(): string {
   return `d_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** 存钱记录稳定 id：s_ + 时间戳 + 随机段（与安卓/小程序同格式） */
+function newSavingsId(): string {
+  return `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function savingsRowToItem(row: any): any {
+  return {
+    id: row.id,
+    direction: row.direction,
+    amount: Number(row.amount) || 0,
+    date: row.date,
+    note: row.note || '',
+    created_at: Number(row.created_at) || 0,
+    updated_at: Number(row.updated_at) || 0,
+    deleted: Number(row.deleted) || 0,
+    revive_count: Number(row.revive_count) || 0,
+  }
 }
 
 /** 默认分类种子（v0.9.1 起「宠物」独立为一级大类）。
@@ -662,6 +715,134 @@ function setupIPC(): void {
     return { success: true }
   })
 
+  // ---- 存钱罐（独立小账本，不参与 records / 统计 / 预算） ----
+  ipcMain.handle('savings:getAll', () => {
+    return queryAll('SELECT * FROM savings WHERE deleted = 0 ORDER BY date DESC, created_at DESC')
+      .map(savingsRowToItem)
+  })
+
+  ipcMain.handle('savings:getDeleted', () => {
+    return queryAll('SELECT * FROM savings WHERE deleted > 0 ORDER BY date DESC, created_at DESC')
+      .map(savingsRowToItem)
+  })
+
+  ipcMain.handle('savings:getSummary', () => {
+    const rows = queryAll('SELECT direction, amount, date FROM savings WHERE deleted = 0')
+    const month = localDateStr().slice(0, 7)
+    const cents = (x: number): number => Math.round((Number(x) || 0) * 100)
+    let totalIn = 0
+    let totalOut = 0
+    let monthIn = 0
+    let monthOut = 0
+    for (const r of rows) {
+      const n = cents(r.amount)
+      if (r.direction === 'in') {
+        totalIn += n
+        if (String(r.date || '').startsWith(month)) monthIn += n
+      } else if (r.direction === 'out') {
+        totalOut += n
+        if (String(r.date || '').startsWith(month)) monthOut += n
+      }
+    }
+    return {
+      total: (totalIn - totalOut) / 100,
+      totalIn: totalIn / 100,
+      totalOut: totalOut / 100,
+      monthIn: monthIn / 100,
+      monthOut: monthOut / 100,
+    }
+  })
+
+  ipcMain.handle('savings:add', (_event, data: {
+    direction: string; amount: number; date: string; note?: string
+  }) => {
+    if (data.direction !== 'in' && data.direction !== 'out') return { success: false, error: '方向不合法' }
+    const now = Date.now()
+    const id = newSavingsId()
+    db!.run(
+      'INSERT INTO savings (id, direction, amount, date, note, created_at, updated_at, deleted, revive_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)',
+      [id, data.direction, Number(data.amount) || 0, data.date, data.note || '', now, now],
+    )
+    saveDatabase()
+    return { success: true, id }
+  })
+
+  ipcMain.handle('savings:update', (_event, id: string, data: {
+    amount: number; date: string; note?: string
+  }) => {
+    const now = Date.now()
+    db!.run(
+      'UPDATE savings SET amount = ?, date = ?, note = ?, updated_at = ? WHERE id = ? AND deleted = 0',
+      [Number(data.amount) || 0, data.date, data.note || '', now, id],
+    )
+    saveDatabase()
+    return { success: true }
+  })
+
+  ipcMain.handle('savings:delete', (_event, id: string) => {
+    db!.run('UPDATE savings SET deleted = 1, updated_at = ? WHERE id = ? AND deleted = 0', [Date.now(), id])
+    saveDatabase()
+    return { success: true }
+  })
+
+  ipcMain.handle('savings:restore', (_event, id: string) => {
+    db!.run(
+      'UPDATE savings SET deleted = 0, revive_count = revive_count + 1, updated_at = ? WHERE id = ? AND deleted > 0',
+      [Date.now(), id],
+    )
+    saveDatabase()
+    return { success: true }
+  })
+
+  // 独立云同步：取本地全部（含已删除），格式与安卓/小程序 savings 快照一致
+  ipcMain.handle('savings:getAllForSync', () => {
+    return queryAll('SELECT * FROM savings').map((row) => {
+      const r = savingsRowToItem(row)
+      return {
+        id: r.id,
+        direction: r.direction,
+        amount: r.amount,
+        date: r.date,
+        note: r.note,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        deleted: r.deleted > 0,
+        reviveCount: r.revive_count,
+      }
+    })
+  })
+
+  ipcMain.handle('savings:applyCloud', (_event, items: any[]) => {
+    let changed = 0
+    for (const it of items || []) {
+      const id = String(it?.id || '')
+      if (!id) continue
+      const updatedAt = Number(it.updatedAt) || 0
+      const existing = queryOne('SELECT updated_at FROM savings WHERE id = ?', [id])
+      if (existing && Number(existing.updated_at) >= updatedAt) continue
+      const deleted = it.deleted ? 1 : 0
+      if (!existing && deleted) continue
+      db!.run(
+        `INSERT OR REPLACE INTO savings (id, direction, amount, date, note, created_at, updated_at, deleted, revive_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          it.direction === 'out' ? 'out' : 'in',
+          Number(it.amount) || 0,
+          String(it.date || ''),
+          String(it.note || ''),
+          Number(it.createdAt) || updatedAt || Date.now(),
+          updatedAt || Date.now(),
+          deleted,
+          Number(it.reviveCount) || 0,
+        ],
+      )
+      changed++
+    }
+    if (changed > 0) saveDatabase()
+    return { changed }
+  })
+
   // ---- 导出 Excel ----
   ipcMain.handle('records:exportAll', (_event, month?: string, recordType?: string) => {
     let where = ''
@@ -704,6 +885,7 @@ function setupIPC(): void {
       filters: [{ name: '数据库文件', extensions: ['db'] }],
     })
     if (!result.canceled && result.filePath) {
+      saveDatabase(true)
       fs.copyFileSync(DB_PATH, result.filePath)
       return { success: true, path: result.filePath }
     }
@@ -940,21 +1122,6 @@ function setupIPC(): void {
     saveDatabase()
     return { success: true, recorded }
   })
-
-  // ---- 云同步（状态查询，实际同步在渲染进程 cloudbase.ts 中执行）----
-  ipcMain.handle('cloud:getStatus', () => ({
-    enabled: false,  // 由渲染进程 cloudbase.ts 管理连接状态
-    envId: '',
-    manifest: null,
-  }))
-
-  ipcMain.handle('cloud:setEnvId', (_event, _envId: string) => {
-    return { success: true }
-  })
-
-  ipcMain.handle('cloud:sync', async () => {
-    return { success: false, uploaded: 0, downloaded: 0, error: '请在侧边栏使用云同步功能' }
-  })
 }
 
 // 检查周期性账单到期（启动延时 + 运行期定时调用）
@@ -1090,14 +1257,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', sans-s
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1200, height: 800, minWidth: 900, minHeight: 600,
+    width: 1280, height: 840, minWidth: 960, minHeight: 640,
     title: '计序',
     icon: getIconPath(),
+    show: false,                 // 先建好、内容就绪再显示：消除「白屏一闪」
+    backgroundColor: '#0A0B0D',  // 与深色主题同色，首帧不跳
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true, nodeIntegration: false,
+      backgroundThrottling: false,
     },
   })
+
+  mainWindow.once('ready-to-show', () => { mainWindow?.show() })
 
   // 点击 X 时弹窗询问：最小化到托盘 or 直接退出
   mainWindow.on('close', (event) => {
@@ -1118,7 +1290,7 @@ function createWindow(): void {
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || process.env.ELECTRON_RENDERER_URL
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl)
-    mainWindow.webContents.openDevTools()
+    if (process.env.JIXU_DEVTOOLS === '1') mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
@@ -1244,6 +1416,7 @@ if (!gotLock) {
 // 标记真正的退出
 app.on('before-quit', () => {
   isQuitting = true
+  saveDatabase(true)
 })
 
 app.on('window-all-closed', () => {

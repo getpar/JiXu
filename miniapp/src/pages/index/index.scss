@@ -83,6 +83,16 @@
 .action-item.no-bottom { border-bottom: none; }
 .action-item-text { font-size: 26rpx; color: var(--text); }
 
+/* ====== 存钱罐入口（不显示金额） ====== */
+.savings-entry {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--card); border-radius: 24rpx; padding: 26rpx 30rpx; margin-bottom: 24rpx;
+}
+.savings-entry-info { display: flex; flex-direction: column; gap: 5rpx; }
+.savings-entry-title { font-size: 27rpx; font-weight: 500; color: var(--text); }
+.savings-entry-sub { font-size: 22rpx; color: var(--muted); }
+.savings-entry-arrow { font-size: 32rpx; color: var(--faint); }
+
 /* ====== 最近记录 ====== */
 .section { background: var(--card); border-radius: 24rpx; padding: 28rpx 30rpx; margin-bottom: 24rpx; }
 .section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4rpx; }
@@ -123,6 +133,7 @@
 .modal-box {
   background: var(--card); border-radius: 24rpx; padding: 40rpx 36rpx;
   width: 84%; max-width: 560rpx; box-sizing: border-box;
+  max-height: 84vh; overflow-y: auto;
 }
 .modal-title { font-size: 32rpx; font-weight: 500; display: block; margin-bottom: 26rpx; color: var(--text); }
 .modal-note { font-size: 23rpx; color: var(--muted); display: block; line-height: 1.6; }
@@ -139,6 +150,37 @@
 .btn-cancel { background: var(--soft); color: var(--sub); }
 .btn-ok { background: var(--accent); }
 .btn-ok-text { color: #fff; font-weight: 500; }
+
+/* ====== v1.2.0 微信身份 / 扫码配对 ====== */
+.wx-status {
+  background: var(--soft); border-radius: 16rpx; padding: 20rpx 24rpx; margin-bottom: 26rpx;
+  border-left: 6rpx solid var(--faint);
+}
+.wx-status.is-ok { border-left-color: var(--inc); }
+.wx-status.is-off { border-left-color: var(--warn); }
+.wx-status-title { font-size: 26rpx; color: var(--text); display: block; font-weight: 500; }
+.wx-status-error { font-size: 22rpx; color: var(--exp); display: block; margin-top: 8rpx; line-height: 1.5; }
+
+.pair-block { margin-bottom: 28rpx; }
+.pair-btn { height: 88rpx; display: flex; align-items: center; justify-content: center; }
+.pair-btn.is-busy { opacity: .65; }
+.pair-link { font-size: 22rpx; color: var(--accent); text-align: center; display: block; margin-top: 14rpx; }
+
+.invite-box {
+  background: var(--accent-soft); border-radius: 16rpx;
+  padding: 26rpx 20rpx; margin-top: 18rpx; text-align: center;
+}
+.invite-code {
+  display: block; font-size: 64rpx; font-weight: 500; color: var(--accent);
+  letter-spacing: 16rpx; padding-left: 16rpx; line-height: 1.25;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.invite-note { font-size: 22rpx; color: var(--sub); display: block; margin-top: 8rpx; }
+
+.adv-head { margin-top: 8rpx; padding-top: 24rpx; border-top: 1rpx solid var(--line); }
+.adv-body { margin-top: 16rpx; }
+.adv-env-head { margin-top: 28rpx; padding-top: 20rpx; border-top: 1rpx solid var(--line); }
 
 /* ====== 语义色 ====== */
 .t-exp { color: var(--exp); }

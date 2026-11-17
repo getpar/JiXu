@@ -79,8 +79,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getShortcut: () => ipcRenderer.invoke('shortcut:get'),
   setShortcut: (accelerator: string) => ipcRenderer.invoke('shortcut:set', accelerator),
 
-  // 云同步
-  getCloudStatus: () => ipcRenderer.invoke('cloud:getStatus'),
-  setCloudEnvId: (envId: string) => ipcRenderer.invoke('cloud:setEnvId', envId),
-  cloudSync: () => ipcRenderer.invoke('cloud:sync'),
+  // 存钱罐（独立小账本，不参与账单/统计）
+  getSavings: () => ipcRenderer.invoke('savings:getAll'),
+  getDeletedSavings: () => ipcRenderer.invoke('savings:getDeleted'),
+  getSavingsSummary: () => ipcRenderer.invoke('savings:getSummary'),
+  addSaving: (data: { direction: string; amount: number; date: string; note?: string }) =>
+    ipcRenderer.invoke('savings:add', data),
+  updateSaving: (id: string, data: { amount: number; date: string; note?: string }) =>
+    ipcRenderer.invoke('savings:update', id, data),
+  deleteSaving: (id: string) => ipcRenderer.invoke('savings:delete', id),
+  restoreSaving: (id: string) => ipcRenderer.invoke('savings:restore', id),
+  getSavingsForSync: () => ipcRenderer.invoke('savings:getAllForSync'),
+  applyCloudSavings: (items: Record<string, unknown>[]) => ipcRenderer.invoke('savings:applyCloud', items),
 })

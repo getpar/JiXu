@@ -91,3 +91,25 @@ data class PendingPurgeEntity(
     val label: String? = null,
     val seq: Long,
 )
+
+/**
+ * 存钱记录（需求评估-02，独立小账本）。
+ *
+ * 和 records 完全分开：不参与收入/支出/结余/预算/统计。
+ * direction = in（存入）/ out（取出）；updated_at 用于独立云同步的 LWW 比较。
+ */
+@Entity(
+    tableName = "savings",
+    indices = [Index(value = ["deleted", "date"])],
+)
+data class SavingsEntity(
+    @PrimaryKey val id: String,
+    val direction: String,
+    val amount: Double,
+    val date: String,
+    val note: String = "",
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    val deleted: Int = 0,
+    @ColumnInfo(name = "revive_count") val reviveCount: Int = 0,
+)
