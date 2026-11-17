@@ -4,11 +4,16 @@ directories:
   output: release
   buildResources: build
 
-# 明确排除打包产物目录与压缩包，避免它们被当成源码打进 app.asar
-# （尤其是用 -c.directories.output 临时改输出目录时，旧的 release/ 会被误打包）
+# 只打运行时真正需要的东西：
+#   out/       —— electron-vite 产物（main / preload / renderer 都在这里，渲染层已 bundle）
+#   package.json
+# node_modules 由 electron-builder 按 dependencies 自动加入（现在只剩 sql.js；
+# antd / @ant-design / @antv / react / xlsx 等已经被 vite 打进 renderer bundle，
+# 留在 dependencies 只会让 app.asar 白白多出 200MB）
 files:
-  - "**/*"
-  - "!release*/**"
+  - "out/**/*"
+  - "package.json"
+  - "!**/*.map"
   - "!**/*.zip"
   - "!**/*.7z"
   - "!**/*.blockmap"
