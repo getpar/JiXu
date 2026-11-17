@@ -1,6 +1,6 @@
 {
   "name": "daily-notes-miniapp",
-  "version": "0.1.0",
+  "version": "1.3.0",
   "private": true,
   "description": "计序 — 微信小程序版",
   "scripts": {
@@ -9,7 +9,9 @@
     "postbuild:weapp": "node scripts/copy-cloudfunctions.js",
     "verify:sync": "tsc src/utils/cloudCore.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/verify-sync.js",
     "verify:account": "node scripts/verify-account-function.js",
-    "export:android": "tsc src/utils/cloudCore.ts src/utils/dates.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/export-android-fixtures.js"
+    "export:android": "tsc src/utils/cloudCore.ts src/utils/dates.ts --outDir .sync-verify --module commonjs --target es2019 --skipLibCheck && node scripts/export-android-fixtures.js",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix"
   },
   "dependencies": {
     "@tarojs/components": "3.6.32",
@@ -28,12 +30,17 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "@eslint/js": "^9.39.5",
     "@tarojs/cli": "3.6.32",
     "@tarojs/mini-runner": "3.6.32",
     "@tarojs/webpack5-runner": "3.6.32",
     "@types/react": "^18.2.0",
     "babel-preset-taro": "3.6.32",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.14.0",
     "typescript": "^5.1.0",
+    "typescript-eslint": "^8.73.0",
     "webpack": "^5.78.0"
   }
 }

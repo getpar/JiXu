@@ -37,9 +37,21 @@ function androidEnv() {
 const STEPS = [
   {
     id: 'desktop',
+    name: '桌面端 lint',
+    cwd: 'desktop',
+    cmd: 'npm run lint',
+  },
+  {
+    id: 'desktop',
     name: '桌面端 tsc',
     cwd: 'desktop',
     cmd: 'npx tsc --noEmit',
+  },
+  {
+    id: 'miniapp',
+    name: '小程序 lint',
+    cwd: 'miniapp',
+    cmd: 'npm run lint',
   },
   {
     id: 'miniapp',

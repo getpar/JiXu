@@ -24,11 +24,17 @@ jobs:
       - name: 安装依赖（桌面）
         run: npm ci --prefix desktop
 
+      - name: Lint（桌面）
+        run: npm --prefix desktop run lint
+
       - name: 类型检查（桌面）
         run: npm --prefix desktop exec -- tsc --noEmit
 
       - name: 安装依赖（小程序）
         run: npm ci --prefix miniapp
+
+      - name: Lint（小程序）
+        run: npm --prefix miniapp run lint
 
       - name: 同步引擎回归
         run: npm --prefix miniapp run verify:sync

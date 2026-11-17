@@ -1,13 +1,15 @@
 {
   "name": "daily-notes",
-  "version": "0.8.8",
+  "version": "1.3.0",
   "description": "计序 — 个人记账桌面应用",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && electron-builder",
     "postbuild": "node -e \"const{execSync}=require('child_process');try{execSync('node_modules/rcedit/bin/rcedit-x64.exe release/win-unpacked/计序.exe --set-icon build/icon.ico',{stdio:'pipe'})}catch(e){}\"",
-    "preview": "electron-vite preview"
+    "preview": "electron-vite preview",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix"
   },
   "dependencies": {
     "sql.js": "^1.12.0"
@@ -16,6 +18,7 @@
     "@ant-design/charts": "^2.6.7",
     "@ant-design/icons": "^5.5.0",
     "@cloudbase/js-sdk": "^3.6.3",
+    "@eslint/js": "^9.39.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/sql.js": "^1.4.9",
@@ -26,11 +29,15 @@
     "electron": "^28.2.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.14.0",
     "rcedit": "^5.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.73.0",
     "vite": "^5.4.0",
     "xlsx": "^0.18.5"
   }
