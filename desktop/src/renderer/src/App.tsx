@@ -1,33 +1,38 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import HomePage from './pages/HomePage'
-import AddExpensePage from './pages/AddExpensePage'
-import HistoryPage from './pages/HistoryPage'
-import StatsPage from './pages/StatsPage'
-import CategoryPage from './pages/CategoryPage'
-import RecurringPage from './pages/RecurringPage'
-import TodosPage from './pages/TodosPage'
-import QuickAddPage from './pages/QuickAddPage'
-import RecycleBinPage from './pages/RecycleBinPage'
-import SavingsPage from './pages/SavingsPage'
+
+// 首屏只留首页；其余页面按需加载，避免 @ant-design/charts 这类大依赖拖慢启动
+const AddExpensePage = lazy(() => import('./pages/AddExpensePage'))
+const HistoryPage = lazy(() => import('./pages/HistoryPage'))
+const StatsPage = lazy(() => import('./pages/StatsPage'))
+const CategoryPage = lazy(() => import('./pages/CategoryPage'))
+const RecurringPage = lazy(() => import('./pages/RecurringPage'))
+const TodosPage = lazy(() => import('./pages/TodosPage'))
+const QuickAddPage = lazy(() => import('./pages/QuickAddPage'))
+const RecycleBinPage = lazy(() => import('./pages/RecycleBinPage'))
+const SavingsPage = lazy(() => import('./pages/SavingsPage'))
 
 function App(): JSX.Element {
   return (
-    <Routes>
-      <Route path="/" element={<AppLayout />}>
-        <Route index element={<Navigate to="/home" replace />} />
-        <Route path="home" element={<HomePage />} />
-        <Route path="add" element={<AddExpensePage />} />
-        <Route path="history" element={<HistoryPage />} />
-        <Route path="stats" element={<StatsPage />} />
-        <Route path="categories" element={<CategoryPage />} />
-        <Route path="recurring" element={<RecurringPage />} />
-        <Route path="todos" element={<TodosPage />} />
-        <Route path="savings" element={<SavingsPage />} />
-        <Route path="quick-add" element={<QuickAddPage />} />
-        <Route path="recycle-bin" element={<RecycleBinPage />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={<div className="page-pending" aria-busy="true" />}>
+      <Routes>
+        <Route path="/" element={<AppLayout />}>
+          <Route index element={<Navigate to="/home" replace />} />
+          <Route path="home" element={<HomePage />} />
+          <Route path="add" element={<AddExpensePage />} />
+          <Route path="history" element={<HistoryPage />} />
+          <Route path="stats" element={<StatsPage />} />
+          <Route path="categories" element={<CategoryPage />} />
+          <Route path="recurring" element={<RecurringPage />} />
+          <Route path="todos" element={<TodosPage />} />
+          <Route path="savings" element={<SavingsPage />} />
+          <Route path="quick-add" element={<QuickAddPage />} />
+          <Route path="recycle-bin" element={<RecycleBinPage />} />
+        </Route>
+      </Routes>
+    </Suspense>
   )
 }
 
