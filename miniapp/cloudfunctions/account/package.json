@@ -1,0 +1,9 @@
+{
+  "name": "account",
+  "version": "1.0.0",
+  "description": "微信身份 ↔ 账本 ownerId 映射（方案B）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

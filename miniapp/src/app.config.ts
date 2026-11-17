@@ -7,6 +7,8 @@ export default defineAppConfig({
     'pages/categories/index',
     'pages/recurring/index',
     'pages/todos/index',
+    'pages/savings/index',
+    'pages/pair/index',
   ],
   window: {
     backgroundTextStyle: 'dark',

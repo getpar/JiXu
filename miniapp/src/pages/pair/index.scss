@@ -1,0 +1,85 @@
+/* ====== 微信扫小程序码 → 确认安卓配对 ====== */
+
+.wrap {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 0 40rpx;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pair-card {
+  width: 100%;
+  background: var(--card);
+  border: 1rpx solid var(--line);
+  border-radius: 28rpx;
+  padding: 76rpx 44rpx 68rpx;
+  text-align: center;
+}
+
+.pair-spinner {
+  width: 64rpx;
+  height: 64rpx;
+  margin: 0 auto 36rpx;
+  border: 5rpx solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pair-spin .9s linear infinite;
+}
+
+@keyframes pair-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.pair-mark {
+  width: 88rpx;
+  height: 88rpx;
+  margin: 0 auto 36rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pair-mark.ok { background: var(--inc-soft); }
+.pair-mark.error { background: var(--exp-soft); }
+.pair-mark-text { font-size: 44rpx; font-weight: 500; }
+.pair-mark.ok .pair-mark-text { color: var(--inc); }
+.pair-mark.error .pair-mark-text { color: var(--exp); }
+
+.pair-title {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.pair-desc {
+  display: block;
+  margin-top: 18rpx;
+  font-size: 25rpx;
+  color: var(--sub);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.pair-device {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  color: var(--muted);
+}
+
+.pair-btn {
+  margin-top: 48rpx;
+  height: 88rpx;
+  border-radius: 16rpx;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pair-btn-text { color: #fff; font-size: 28rpx; font-weight: 500; }

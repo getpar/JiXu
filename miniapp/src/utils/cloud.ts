@@ -28,7 +28,7 @@ import {
 // ---- 配置：默认环境 ID 已填入（2026-09-20 开通）；Storage 可用 cloud_env_id 覆盖（方案B），清空则回退本地模拟云 ----
 
 const DEFAULT_CLOUD_ENV_ID = 'daily-notes-d3gaotrwyc09ff44a'
-const ENV_OVERRIDE_KEY = '***'
+const ENV_OVERRIDE_KEY = 'cloud_env_id'
 
 /** 当前生效的环境 ID：Storage 自定义覆盖优先，其次内置默认值，都没有 = 空（走模拟云） */
 export function getEnvId(): string {
@@ -68,6 +68,17 @@ export function getOwnerId(): string {
     taroStore.set(OWNER_KEY, id)
   }
   return id
+}
+
+/**
+ * v1.2.0 微信身份：把云函数（account）返回的 ownerId 只写入本机，不调云端。
+ * 与「加入同步码」不同：这是服务端按微信 OPENID 解析出的权威身份，调用方需自行处理同步。
+ */
+export function setLocalOwnerId(id: string): boolean {
+  const v = normalizeOwnerId(id)
+  if (!isValidOwnerId(v)) return false
+  taroStore.set(OWNER_KEY, v)
+  return true
 }
 
 /** 加入指定户：输入另一端显示的同步码，成功返回 true */
@@ -126,7 +137,14 @@ export const taroStore: KVStore = {
 
 let wxInitedEnv = '' // 已 init 过的环境 ID（切换环境时自动重新 init）
 
-function createWxCloudCollection(): CloudCollection | null {
+/**
+ * v1.2.0 微信身份扫码配对：配对文档（pair_req / pair_ack / pair_invite）与账单共用 records 集合。
+ * 协议规定配对文档绝不能带名为 ownerId 的字段（交账本码用 targetOwnerId），正常不会被 listAll 拉到；
+ * 这里再按 kind 兜底过滤一次，防止历史脏文档或字段写错污染账本同步。
+ */
+const PAIR_DOC_KINDS = ['pair_req', 'pair_ack', 'pair_invite']
+
+function createWxCloudCollection(collectionName: string = 'records'): CloudCollection | null {
   const envId = getEnvId()
   if (!envId) return null
   if (typeof wx === 'undefined' || !wx.cloud) {
@@ -141,7 +159,7 @@ function createWxCloudCollection(): CloudCollection | null {
     }
     lastInitError = ''
     const db = wx.cloud.database()
-    const col = db.collection('records')
+    const col = db.collection(collectionName)
     return {
       async listAll(ownerId: string): Promise<CloudDoc[]> {
         // 只拉本户（同同步码）的文档（账单+删除凭证+撤销凭条混合）
@@ -163,7 +181,13 @@ function createWxCloudCollection(): CloudCollection | null {
           const batch = await Promise.all(
             offsets.slice(i, i + 5).map((o) => q.orderBy('updatedAt', 'asc').orderBy('_id', 'asc').skip(o).limit(PAGE).get()),
           )
-          for (const res of batch) for (const d of (res.data || []) as CloudDoc[]) all.set(String(d._id), d)
+          for (const res of batch) {
+            for (const d of (res.data || []) as CloudDoc[]) {
+              // 配对文档不属于账本数据，直接跳过（见 PAIR_DOC_KINDS 说明）
+              if (PAIR_DOC_KINDS.indexOf(String((d as any).kind || '')) >= 0) continue
+              all.set(String(d._id), d)
+            }
+          }
         }
         return [...all.values()]
       },
@@ -197,6 +221,7 @@ export async function testCloud(): Promise<{ real: boolean; detail: string }> {
 // ---- 模拟云驱动：Taro Storage 里的一个 JSON 数组 ----
 
 const mockCloud: CloudCollection = createMockCloud(taroStore)
+const mockSavingsCloud: CloudCollection = createMockCloud(taroStore, 'mock_cloud_savings')
 
 // ---- 对外统一出口 ----
 
@@ -224,6 +249,11 @@ export function getCloudDatabase(): any {
 /** 获取当前生效的云集合实现（真云优先，自动回退模拟云） */
 export function getCloudCollection(): CloudCollection {
   return createWxCloudCollection() || mockCloud
+}
+
+/** 存钱罐独立云集合（savings，不与 records 混用；未连真云时走独立模拟云） */
+export function getSavingsCloudCollection(): CloudCollection {
+  return createWxCloudCollection('savings') || mockSavingsCloud
 }
 
 /** 是否首次使用（本机这个同步码还没和云同步过，仅用于引导提示） */
