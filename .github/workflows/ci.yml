@@ -28,7 +28,8 @@ jobs:
         run: npm --prefix desktop run lint
 
       - name: 类型检查（桌面）
-        run: npm --prefix desktop exec -- tsc --noEmit
+        working-directory: desktop
+        run: npx tsc --noEmit
 
       - name: 安装依赖（小程序）
         run: npm ci --prefix miniapp
